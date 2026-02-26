@@ -323,16 +323,59 @@ const isInterviewClosingPhrase = (text?: string) => {
 
   const normalized = text.toLowerCase().trim();
 
+  // Must contain the SPECIFIC concluding phrase, not just "thank you"
+  // The interviewer ends with: "Thank you for your time. This concludes the interview."
+  return (
+    normalized.includes("this concludes the interview") ||
+    normalized.includes("that concludes the interview") ||
+    normalized.includes("interview is complete") ||
+    normalized.includes("interview is now complete") ||
+    (normalized.includes("thank you for your time") && normalized.includes("concludes"))
+  );
+};
+
+const isInterviewClosurePrompt = (text?: string) => {
+  if (!text) return false;
+
+  const normalized = text.toLowerCase().trim();
+
   return [
-    "thank you",
-    "thanks for your time",
-    "this concludes the interview",
-    "that concludes the interview",
-    "we'll get back to you",
-    "interview is complete",
-    "interview is now complete",
+    "would you like to end",
+    "would you like to conclude",
+    "shall we end",
+    "shall we conclude",
+    "do you want to end",
+    "do you want to finish",
+    "can we wrap up",
+    "ready to conclude",
   ].some((phrase) => normalized.includes(phrase));
 };
+
+const isInterviewEndConfirmation = (text?: string) => {
+  if (!text) return false;
+
+  const normalized = text.toLowerCase().trim();
+
+  return [
+    "yes",
+    "yes please",
+    "yes, please",
+    "sure",
+    "okay",
+    "ok",
+    "let's end",
+    "lets end",
+    "end the interview",
+    "you can end",
+    "we can end",
+    "finish the interview",
+  ].some((phrase) => normalized.includes(phrase));
+};
+
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value
+  );
 
 const extractErrorMessage = (value: unknown): string => {
   if (typeof value === "string") return value;
@@ -393,6 +436,7 @@ const Agent = ({
   feedbackId,
   type,
   questions,
+  level,
 }: AgentProps) => {
   const router = useRouter();
   const vapi = useMemo(() => getVapi(), []);
@@ -409,6 +453,7 @@ const Agent = ({
   const autoStopTriggeredRef = useRef(false);
   const endingGenerateCallRef = useRef(false);
   const endingInterviewCallRef = useRef(false);
+  const awaitingInterviewEndConfirmationRef = useRef(false);
   const lastEjectionToastAtRef = useRef(0);
   const hasUserSpokenRef = useRef(false);
   const lastMessage = messages[messages.length - 1]?.content;
@@ -532,7 +577,7 @@ const Agent = ({
       const generatedInterviewId = await saveGeneratedInterview();
       if (generatedInterviewId) {
         toast.success("Interview generated and saved.");
-        router.push(`/interview/${generatedInterviewId}`);
+        router.push("/");
         router.refresh();
         return;
       }
@@ -643,6 +688,7 @@ const Agent = ({
       autoStopTriggeredRef.current = false;
       endingGenerateCallRef.current = false;
       endingInterviewCallRef.current = false;
+      awaitingInterviewEndConfirmationRef.current = false;
       hasUserSpokenRef.current = false;
       generatedPayloadRef.current = null;
       setGeneratedPayload(null);
@@ -707,6 +753,25 @@ const Agent = ({
           type === "interview" &&
           isInterviewClosingPhrase(message.transcript)
         ) {
+          endInterviewCallAndContinue();
+        }
+
+        if (
+          message.role === "assistant" &&
+          type === "interview" &&
+          isInterviewClosurePrompt(message.transcript)
+        ) {
+          awaitingInterviewEndConfirmationRef.current = true;
+          debugLog("Awaiting user confirmation to end interview");
+        }
+
+        if (
+          message.role === "user" &&
+          type === "interview" &&
+          (awaitingInterviewEndConfirmationRef.current || isInterviewEndConfirmation(message.transcript)) &&
+          isInterviewEndConfirmation(message.transcript)
+        ) {
+          awaitingInterviewEndConfirmationRef.current = false;
           endInterviewCallAndContinue();
         }
       }
@@ -856,7 +921,7 @@ const Agent = ({
         throw new Error("Missing NEXT_PUBLIC_VAPI_WEB_TOKEN in environment variables.");
       }
 
-      const workflowId = process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID;
+      const workflowId = process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID?.trim();
 
       if (!navigator?.mediaDevices?.getUserMedia) {
         throw new Error("Your browser does not support microphone access.");
@@ -887,6 +952,12 @@ const Agent = ({
           throw new Error("Missing NEXT_PUBLIC_VAPI_WORKFLOW_ID in environment variables.");
         }
 
+        if (!isUuid(workflowId)) {
+          throw new Error(
+            "Invalid NEXT_PUBLIC_VAPI_WORKFLOW_ID. It must be a UUID (example: 123e4567-e89b-12d3-a456-426614174000)."
+          );
+        }
+
         debugLog("Starting generate workflow", {
           workflowId,
           hasUserName: !!userName,
@@ -908,6 +979,7 @@ const Agent = ({
         await vapi.start(interviewer, {
           variableValues: {
             questions: formattedQuestions,
+            level: level ?? "Mid",
           },
         });
       }

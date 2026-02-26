@@ -1,11 +1,98 @@
 "use server";
 
-import { generateObject } from "ai";
-import { google } from "@ai-sdk/google";
-
 import { db } from "@/firebase/admin";
 import { feedbackSchema } from "@/constants";
 import { getCurrentUserId } from "./auth.action";
+
+const generateFeedbackWithOpenRouter = async (
+  formattedTranscript: string
+): Promise<{
+  totalScore: number;
+  categoryScores: Array<{ name: string; score: number; comment: string }>;
+  strengths: string[];
+  areasForImprovement: string[];
+  finalAssessment: string;
+}> => {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("Missing OPENROUTER_API_KEY");
+  }
+
+  const model = process.env.OPENROUTER_MODEL?.trim() || "openai/gpt-4o-mini";
+
+  const systemPrompt = `You are a professional interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories. Return ONLY valid JSON with no markdown formatting.`;
+
+  const userPrompt = `You are an AI interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories. Be thorough and detailed in your analysis. Don't be lenient with the candidate. If there are mistakes or areas for improvement, point them out.
+
+Transcript:
+${formattedTranscript}
+
+Please score the candidate from 0 to 100 in the following areas. Do not add categories other than the ones provided:
+- Communication Skills: Clarity, articulation, structured responses.
+- Technical Knowledge: Understanding of key concepts for the role.
+- Problem-Solving: Ability to analyze problems and propose solutions.
+- Cultural Fit: Alignment with company values and job role.
+- Confidence and Clarity: Confidence in responses, engagement, and clarity.
+
+Return your evaluation as a JSON object with this exact structure:
+{
+  "totalScore": <number 0-100>,
+  "categoryScores": [
+    {"name": "Communication Skills", "score": <number 0-100>, "comment": "<string>"},
+    {"name": "Technical Knowledge", "score": <number 0-100>, "comment": "<string>"},
+    {"name": "Problem Solving", "score": <number 0-100>, "comment": "<string>"},
+    {"name": "Cultural Fit", "score": <number 0-100>, "comment": "<string>"},
+    {"name": "Confidence and Clarity", "score": <number 0-100>, "comment": "<string>"}
+  ],
+  "strengths": ["<string>", "<string>", ...],
+  "areasForImprovement": ["<string>", "<string>", ...],
+  "finalAssessment": "<string>"
+}
+
+Return ONLY the JSON object, no markdown code blocks or extra text.`;
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000",
+      "X-Title": "PrepWise",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.3,
+    }),
+  });
+
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: { message?: string };
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+
+  if (!response.ok) {
+    const providerMessage = body.error?.message || "OpenRouter request failed";
+    throw new Error(providerMessage);
+  }
+
+  const content = body.choices?.[0]?.message?.content?.trim();
+  if (!content) {
+    throw new Error("OpenRouter returned empty content");
+  }
+
+  // Parse the JSON response
+  const cleaned = content
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+
+  const parsed = JSON.parse(cleaned);
+  return feedbackSchema.parse(parsed);
+};
 
 export async function createFeedback(params: CreateFeedbackParams) {
   const { interviewId, transcript, feedbackId } = params;
@@ -37,24 +124,7 @@ export async function createFeedback(params: CreateFeedbackParams) {
       )
       .join("");
 
-    const { object } = await generateObject({
-      model: google("gemini-2.0-flash-001"),
-      schema: feedbackSchema,
-      prompt: `
-        You are an AI interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories. Be thorough and detailed in your analysis. Don't be lenient with the candidate. If there are mistakes or areas for improvement, point them out.
-        Transcript:
-        ${formattedTranscript}
-
-        Please score the candidate from 0 to 100 in the following areas. Do not add categories other than the ones provided:
-        - **Communication Skills**: Clarity, articulation, structured responses.
-        - **Technical Knowledge**: Understanding of key concepts for the role.
-        - **Problem-Solving**: Ability to analyze problems and propose solutions.
-        - **Cultural & Role Fit**: Alignment with company values and job role.
-        - **Confidence & Clarity**: Confidence in responses, engagement, and clarity.
-        `,
-      system:
-        "You are a professional interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories",
-    });
+    const object = await generateFeedbackWithOpenRouter(formattedTranscript);
 
     const feedback = {
       interviewId: interviewId,
