@@ -318,6 +318,22 @@ const isGenerateClosingPhrase = (text?: string) => {
   ].some((phrase) => normalized.includes(phrase));
 };
 
+const isInterviewClosingPhrase = (text?: string) => {
+  if (!text) return false;
+
+  const normalized = text.toLowerCase().trim();
+
+  return [
+    "thank you",
+    "thanks for your time",
+    "this concludes the interview",
+    "that concludes the interview",
+    "we'll get back to you",
+    "interview is complete",
+    "interview is now complete",
+  ].some((phrase) => normalized.includes(phrase));
+};
+
 const extractErrorMessage = (value: unknown): string => {
   if (typeof value === "string") return value;
   if (value instanceof Error) return value.message;
@@ -392,6 +408,7 @@ const Agent = ({
   const suppressFinishRef = useRef(false);
   const autoStopTriggeredRef = useRef(false);
   const endingGenerateCallRef = useRef(false);
+  const endingInterviewCallRef = useRef(false);
   const lastEjectionToastAtRef = useRef(0);
   const hasUserSpokenRef = useRef(false);
   const lastMessage = messages[messages.length - 1]?.content;
@@ -602,10 +619,30 @@ const Agent = ({
       }
     };
 
+    const endInterviewCallAndContinue = () => {
+      if (
+        type !== "interview" ||
+        callStatusRef.current !== CallStatus.ACTIVE ||
+        endingInterviewCallRef.current
+      ) {
+        return;
+      }
+
+      endingInterviewCallRef.current = true;
+      debugLog("Ending interview call after assistant closing phrase");
+
+      try {
+        vapi.stop();
+      } catch {
+        setCallStatus(CallStatus.FINISHED);
+      }
+    };
+
     const onCallStart = () => {
       suppressFinishRef.current = false;
       autoStopTriggeredRef.current = false;
       endingGenerateCallRef.current = false;
+      endingInterviewCallRef.current = false;
       hasUserSpokenRef.current = false;
       generatedPayloadRef.current = null;
       setGeneratedPayload(null);
@@ -663,6 +700,14 @@ const Agent = ({
           isGenerateClosingPhrase(message.transcript)
         ) {
           endGenerateCallAndContinue();
+        }
+
+        if (
+          message.role === "assistant" &&
+          type === "interview" &&
+          isInterviewClosingPhrase(message.transcript)
+        ) {
+          endInterviewCallAndContinue();
         }
       }
 

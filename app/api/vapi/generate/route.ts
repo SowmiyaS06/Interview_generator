@@ -1,5 +1,4 @@
 import { generateText } from "ai";
-import { google } from "@ai-sdk/google";
 import { cookies } from "next/headers";
 
 import { auth, db } from "@/firebase/admin";
@@ -14,6 +13,86 @@ const serverDebugLog = (label: string, payload?: unknown) => {
     return;
   }
   console.log(`[VAPI_SERVER_DEBUG] ${label}`, payload);
+};
+
+const buildInterviewPrompt = ({
+  role,
+  level,
+  techStackList,
+  type,
+  amount,
+}: {
+  role: string;
+  level: string;
+  techStackList: string[];
+  type: string;
+  amount: number;
+}) => `Prepare questions for a job interview.
+The job role is ${role}.
+The job experience level is ${level}.
+The tech stack used in the job is: ${techStackList.join(", ")}.
+The focus between behavioural and technical questions should lean towards: ${type}.
+The amount of questions required is: ${amount}.
+Please return only the questions, without any additional text.
+The questions are going to be read by a voice assistant so do not use "/" or "*" or any other special characters which might break the voice assistant.
+Return the questions formatted like this:
+["Question 1", "Question 2", "Question 3"]
+`;
+
+const generateQuestionsWithOpenRouter = async (prompt: string) => {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("Missing OPENROUTER_API_KEY");
+  }
+
+  const model = process.env.OPENROUTER_MODEL?.trim() || "openai/gpt-4o-mini";
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000",
+      "X-Title": "PrepWise",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.4,
+    }),
+  });
+
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: { message?: string; code?: number | string };
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+
+  if (!response.ok) {
+    const providerMessage = body.error?.message || "OpenRouter request failed";
+    const normalizedProviderMessage = providerMessage.toLowerCase();
+
+    if (response.status === 401 || normalizedProviderMessage.includes("user not found")) {
+      throw new Error(
+        "OpenRouter authentication failed. Check OPENROUTER_API_KEY in .env.local and ensure the key is active."
+      );
+    }
+
+    if (response.status === 402) {
+      throw new Error(
+        "OpenRouter credits are required for this model. Add credits or switch to a free OpenRouter model."
+      );
+    }
+
+    const message = providerMessage;
+    throw new Error(message);
+  }
+
+  const content = body.choices?.[0]?.message?.content?.trim();
+  if (!content) {
+    throw new Error("OpenRouter returned empty content");
+  }
+
+  return content;
 };
 
 type GeneratePayload = {
@@ -160,25 +239,31 @@ export async function POST(request: Request) {
     let questions = parseQuestions(payload.questions);
 
     if (!questions.length) {
-      const { text } = await generateText({
-        model: google("gemini-2.0-flash-001"),
-        prompt: `Prepare questions for a job interview.
-          The job role is ${role}.
-          The job experience level is ${level}.
-          The tech stack used in the job is: ${techStackList.join(", ")}.
-          The focus between behavioural and technical questions should lean towards: ${type}.
-          The amount of questions required is: ${amount}.
-          Please return only the questions, without any additional text.
-          The questions are going to be read by a voice assistant so do not use "/" or "*" or any other special characters which might break the voice assistant.
-          Return the questions formatted like this:
-          ["Question 1", "Question 2", "Question 3"]
-          
-          Thank you! <3
-      `,
+      const prompt = buildInterviewPrompt({
+        role,
+        level,
+        techStackList,
+        type,
+        amount,
       });
 
-      questions = parseQuestions(text);
-      serverDebugLog("Questions generated via Gemini", {
+      if (!process.env.OPENROUTER_API_KEY?.trim()) {
+        return Response.json(
+          {
+            success: false,
+            error: "Missing OPENROUTER_API_KEY. Configure OpenRouter in .env.local.",
+          },
+          { status: 500 }
+        );
+      }
+
+      const generatedText = await generateQuestionsWithOpenRouter(prompt);
+      serverDebugLog("Questions generated via OpenRouter", {
+        model: process.env.OPENROUTER_MODEL?.trim() || "openai/gpt-4o-mini",
+      });
+
+      questions = parseQuestions(generatedText);
+      serverDebugLog("Questions parsed", {
         parsedQuestionsCount: questions.length,
       });
     }
