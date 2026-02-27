@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import InterviewsList from "@/components/InterviewsList";
-import StatisticsDisplay from "@/components/StatisticsDisplay";
 
 import { getCurrentUser } from "@/lib/actions/auth.action";
 import {
@@ -12,16 +11,14 @@ import {
   getLatestInterviews,
   getFeedbackByInterviewId,
 } from "@/lib/actions/general.action";
-import { getUserStatistics } from "@/lib/actions/statistics.action";
 
 async function Home() {
   const user = await getCurrentUser();
   if (!user) redirect("/sign-in");
 
-  const [userInterviews, allInterview, statistics] = await Promise.all([
+  const [userInterviews, allInterview] = await Promise.all([
     getInterviewsByUserId(user.id),
     getLatestInterviews({ userId: user.id }),
-    getUserStatistics(user.id),
   ]);
 
   const safeUserInterviews = userInterviews ?? [];
@@ -78,14 +75,6 @@ async function Home() {
         />
       </section>
 
-      {/* Statistics Section */}
-      {statistics && statistics.totalFeedbacks > 0 && (
-        <section className="flex flex-col gap-6 mt-8">
-          <h2>Your Performance Statistics</h2>
-          <StatisticsDisplay stats={statistics} />
-        </section>
-      )}
-
       <section className="flex flex-col gap-6 mt-8">
         <h2>Your Interviews</h2>
         <InterviewsList
@@ -103,6 +92,7 @@ async function Home() {
           userId={user.id}
           showDelete={false}
           feedbacks={allFeedbacksMap}
+          showAttendedTag={true}
         />
       </section>
     </>

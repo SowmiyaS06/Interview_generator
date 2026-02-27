@@ -83,6 +83,7 @@ interface InterviewCardProps {
   coverImage?: string;
   showDelete?: boolean;
   feedback?: Feedback | null;
+  showAttendedTag?: boolean;
 }
 
 interface AgentProps {

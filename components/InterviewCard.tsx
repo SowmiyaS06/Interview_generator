@@ -19,6 +19,7 @@ const InterviewCard = ({
   coverImage,
   showDelete = false,
   feedback = null,
+  showAttendedTag = false,
 }: InterviewCardProps) => {
   const normalizedType = /mix/gi.test(type) ? "Mixed" : type;
 
@@ -44,6 +45,12 @@ const InterviewCard = ({
       
       <div className="card-interview">
         <div>
+          {showAttendedTag && feedback && (
+            <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-green-500/20 border border-green-400/40">
+              <p className="text-xs font-semibold text-green-300">Attended</p>
+            </div>
+          )}
+
           {/* Type Badge */}
           <div
             className={cn(

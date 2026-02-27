@@ -9,6 +9,7 @@ interface InterviewsListProps {
   userId: string;
   showDelete?: boolean;
   feedbacks?: Map<string, Feedback | null>;
+  showAttendedTag?: boolean;
 }
 
 export default function InterviewsList({
@@ -16,6 +17,7 @@ export default function InterviewsList({
   userId,
   showDelete = false,
   feedbacks = new Map(),
+  showAttendedTag = false,
 }: InterviewsListProps) {
   const [filteredInterviews, setFilteredInterviews] = useState<Interview[]>(interviews);
 
@@ -47,6 +49,7 @@ export default function InterviewsList({
               coverImage={interview.coverImage}
               showDelete={showDelete}
               feedback={feedbacks.get(interview.id)}
+              showAttendedTag={showAttendedTag}
             />
           ))}
         </div>

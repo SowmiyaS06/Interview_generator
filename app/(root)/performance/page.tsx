@@ -1,15 +1,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import StatisticsDisplay from "@/components/StatisticsDisplay";
 import {
   getLatestPerformanceMetrics,
   getPerformanceTrend,
   calculatePerformanceMetrics,
 } from "@/lib/actions/performance-metrics.action";
+import { getUserStatistics } from "@/lib/actions/statistics.action";
 
 export default function PerformancePage() {
   const [metrics, setMetrics] = useState<any>(null);
   const [trends, setTrends] = useState<any[]>([]);
+  const [statistics, setStatistics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -19,14 +22,20 @@ export default function PerformancePage() {
   const fetchPerformanceData = async () => {
     setLoading(true);
     // Fetch current metrics and trends
-    const metricsResult = await getLatestPerformanceMetrics();
-    const trendsResult = await getPerformanceTrend();
+    const [metricsResult, trendsResult, statisticsResult] = await Promise.all([
+      getLatestPerformanceMetrics(),
+      getPerformanceTrend(),
+      getUserStatistics(),
+    ]);
 
     if (metricsResult.success) {
       setMetrics(metricsResult.metrics);
     }
     if (trendsResult.success) {
       setTrends(trendsResult.trends || []);
+    }
+    if (statisticsResult && statisticsResult.totalFeedbacks > 0) {
+      setStatistics(statisticsResult);
     }
     setLoading(false);
   };
@@ -86,6 +95,13 @@ export default function PerformancePage() {
             Real-time analytics of your interview performance
           </p>
         </div>
+
+        {statistics && (
+          <section className="mb-8">
+            <h2 className="text-2xl font-bold text-slate-900 mb-4">Your Performance Statistics</h2>
+            <StatisticsDisplay stats={statistics} />
+          </section>
+        )}
 
         {/* Current Performance Scores */}
         {metrics && (
