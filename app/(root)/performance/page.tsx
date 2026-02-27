@@ -34,9 +34,7 @@ export default function PerformancePage() {
     if (trendsResult.success) {
       setTrends(trendsResult.trends || []);
     }
-    if (statisticsResult && statisticsResult.totalFeedbacks > 0) {
-      setStatistics(statisticsResult);
-    }
+    setStatistics(statisticsResult || null);
     setLoading(false);
   };
 
@@ -310,7 +308,7 @@ export default function PerformancePage() {
           </>
         )}
 
-        {!metrics && (
+        {statistics?.totalFeedbacks === 0 && (
           <div className="bg-white rounded-lg shadow-md p-12 text-center">
             <h3 className="text-xl font-semibold text-slate-700 mb-2">
               No performance data yet

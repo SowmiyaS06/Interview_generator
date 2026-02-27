@@ -136,15 +136,20 @@ export async function getLatestPerformanceMetrics() {
     const metricsSnapshot = await db
       .collection("performance_metrics")
       .where("userId", "==", userId)
-      .orderBy("createdAt", "desc")
-      .limit(1)
       .get();
 
     if (metricsSnapshot.empty) {
       return { success: false, error: "No metrics available" };
     }
 
-    const metrics = metricsSnapshot.docs[0].data();
+    const latestMetricsDoc = metricsSnapshot.docs
+      .sort((a, b) => {
+        const aTime = new Date(String(a.data().createdAt ?? 0)).getTime();
+        const bTime = new Date(String(b.data().createdAt ?? 0)).getTime();
+        return bTime - aTime;
+      })[0];
+
+    const metrics = latestMetricsDoc.data();
     return { success: true, metrics };
   } catch (error) {
     console.error("Error fetching latest performance metrics:", error);
@@ -162,12 +167,18 @@ export async function getPerformanceTrend(limit: number = 10) {
     const feedbacksSnapshot = await db
       .collection("feedback")
       .where("userId", "==", userId)
-      .orderBy("createdAt", "desc")
-      .limit(limit)
       .get();
 
+    const sortedFeedbackDocs = feedbacksSnapshot.docs
+      .sort((a, b) => {
+        const aTime = new Date(String(a.data().createdAt ?? 0)).getTime();
+        const bTime = new Date(String(b.data().createdAt ?? 0)).getTime();
+        return bTime - aTime;
+      })
+      .slice(0, limit);
+
     const trends = await Promise.all(
-      feedbacksSnapshot.docs.map(async (feedbackDoc) => {
+      sortedFeedbackDocs.map(async (feedbackDoc) => {
         const metricsSnapshot = await db
           .collection("performance_metrics")
           .where("feedbackId", "==", feedbackDoc.id)

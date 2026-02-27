@@ -58,6 +58,11 @@ interface User {
   email: string;
   id: string;
   resumeUrl?: string;
+  resumeFileName?: string;
+  preferredRole?: string;
+  experienceLevel?: "Fresher" | "Junior" | "Mid" | "Senior";
+  primaryTechStack?: string;
+  bio?: string;
   profileUrl?: string;
 }
 
