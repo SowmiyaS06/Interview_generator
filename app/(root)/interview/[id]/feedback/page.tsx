@@ -9,6 +9,11 @@ import {
 } from "@/lib/actions/general.action";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/actions/auth.action";
+import ExportButtons from "@/components/ExportButtons";
+import ShareFeedbackControls from "@/components/ShareFeedbackControls";
+import TranscriptViewer from "@/components/TranscriptViewer";
+import VoiceFeedbackPlayer from "@/components/VoiceFeedbackPlayer";
+import CalendarExport from "@/components/CalendarExport";
 
 const Feedback = async ({ params }: RouteParams) => {
   const { id } = await params;
@@ -68,6 +73,13 @@ const Feedback = async ({ params }: RouteParams) => {
 
       <p>{feedback.finalAssessment}</p>
 
+      <div className="flex flex-wrap gap-4">
+        <VoiceFeedbackPlayer feedbackText={feedback.finalAssessment} />
+        <ExportButtons interview={interview} feedback={feedback} />
+        <ShareFeedbackControls interviewId={id} shareId={feedback.shareId} />
+        <CalendarExport title={`${interview.role} interview follow-up`} />
+      </div>
+
       {/* Interview Breakdown */}
       <div className="flex flex-col gap-4">
         <h2>Breakdown of the Interview:</h2>
@@ -99,16 +111,21 @@ const Feedback = async ({ params }: RouteParams) => {
         </ul>
       </div>
 
+      <div className="flex flex-col gap-3">
+        <h3>Transcript</h3>
+        <TranscriptViewer transcript={feedback.transcript} />
+      </div>
+
       <div className="buttons">
-        <Button className="btn-secondary flex-1">
+        <Button variant="secondary" className="flex-1">
           <Link href="/" className="flex w-full justify-center">
-            <p className="text-sm font-semibold text-primary-200 text-center">
+            <p className="text-sm font-semibold text-center">
               Back to dashboard
             </p>
           </Link>
         </Button>
 
-        <Button className="btn-primary flex-1">
+        <Button variant="default" className="flex-1">
           <Link
             href={`/interview/${id}`}
             className="flex w-full justify-center"

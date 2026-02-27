@@ -1,10 +1,20 @@
-import { generateText } from "ai";
 import { cookies } from "next/headers";
 
 import { auth, db } from "@/firebase/admin";
 import { getRandomInterviewCover } from "@/lib/utils";
+import { checkInterviewRateLimit } from "@/lib/rate-limiter";
+import { trackApiCost } from "@/lib/cost-tracking";
+import { getCachedQuestions, cacheQuestions } from "@/lib/question-cache";
 
 const SERVER_VAPI_DEBUG = process.env.VAPI_DEBUG === "true";
+
+// Constants
+const DEFAULT_MODEL = "openai/gpt-4o-mini";
+const DEFAULT_TEMPERATURE = 0.4;
+const MIN_QUESTIONS = 1;
+const MAX_QUESTIONS = 20;
+const DEFAULT_QUESTIONS = 5;
+const MIN_TECHSTACK_ITEMS = 1;
 
 const serverDebugLog = (label: string, payload?: unknown) => {
   if (!SERVER_VAPI_DEBUG) return;
@@ -21,17 +31,20 @@ const buildInterviewPrompt = ({
   techStackList,
   type,
   amount,
+  difficulty,
 }: {
   role: string;
   level: string;
   techStackList: string[];
   type: string;
   amount: number;
+  difficulty: string;
 }) => `Prepare questions for a job interview.
 The job role is ${role}.
 The job experience level is ${level}.
 The tech stack used in the job is: ${techStackList.join(", ")}.
 The focus between behavioural and technical questions should lean towards: ${type}.
+The difficulty of questions should be: ${difficulty}.
 The amount of questions required is: ${amount}.
 Please return only the questions, without any additional text.
 The questions are going to be read by a voice assistant so do not use "/" or "*" or any other special characters which might break the voice assistant.
@@ -42,54 +55,55 @@ Return the questions formatted like this:
 const generateQuestionsWithOpenRouter = async (prompt: string) => {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) {
-    throw new Error("Missing OPENROUTER_API_KEY");
+    throw new Error("AI service not configured");
   }
 
-  const model = process.env.OPENROUTER_MODEL?.trim() || "openai/gpt-4o-mini";
+  const model = process.env.OPENROUTER_MODEL?.trim() || DEFAULT_MODEL;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000";
 
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000",
+      "HTTP-Referer": appUrl,
       "X-Title": "PrepWise",
     },
     body: JSON.stringify({
       model,
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.4,
+      temperature: DEFAULT_TEMPERATURE,
     }),
   });
 
-  const body = (await response.json().catch(() => ({}))) as {
-    error?: { message?: string; code?: number | string };
+  if (!response.ok) {
+    const errorBody = (await response.json().catch(() => ({}))) as {
+      error?: { message?: string; code?: number | string };
+    };
+    
+    serverDebugLog("OpenRouter error", { status: response.status, error: errorBody });
+
+    // User-friendly error messages
+    if (response.status === 401) {
+      throw new Error("Authentication failed with AI service");
+    }
+    if (response.status === 402) {
+      throw new Error("AI service requires additional credits");
+    }
+    if (response.status === 429) {
+      throw new Error("Too many requests. Please try again in a moment");
+    }
+
+    throw new Error("Failed to generate interview questions");
+  }
+
+  const body = (await response.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
   };
 
-  if (!response.ok) {
-    const providerMessage = body.error?.message || "OpenRouter request failed";
-    const normalizedProviderMessage = providerMessage.toLowerCase();
-
-    if (response.status === 401 || normalizedProviderMessage.includes("user not found")) {
-      throw new Error(
-        "OpenRouter authentication failed. Check OPENROUTER_API_KEY in .env.local and ensure the key is active."
-      );
-    }
-
-    if (response.status === 402) {
-      throw new Error(
-        "OpenRouter credits are required for this model. Add credits or switch to a free OpenRouter model."
-      );
-    }
-
-    const message = providerMessage;
-    throw new Error(message);
-  }
-
   const content = body.choices?.[0]?.message?.content?.trim();
   if (!content) {
-    throw new Error("OpenRouter returned empty content");
+    throw new Error("AI service returned empty response");
   }
 
   return content;
@@ -103,6 +117,8 @@ type GeneratePayload = {
   level?: string;
   experienceLevel?: string;
   seniority?: string;
+  difficulty?: string;
+  templateId?: string;
   techstack?: string | string[];
   techStack?: string | string[];
   amount?: number | string;
@@ -202,22 +218,41 @@ export async function POST(request: Request) {
     payload = (await request.json()) as GeneratePayload;
   } catch {
     return Response.json(
-      { success: false, error: "Invalid JSON payload" },
+      { success: false, error: "Invalid request format" },
       { status: 400 }
+    );
+  }
+
+  // Check API key early
+  if (!process.env.OPENROUTER_API_KEY?.trim()) {
+    return Response.json(
+      { success: false, error: "AI service not configured" },
+      { status: 503 }
     );
   }
 
   const type = pickString([payload.type], "Technical");
   const role = pickString([payload.role, payload.jobRole, payload.position], "General");
   const level = pickString([payload.level, payload.experienceLevel, payload.seniority], "Mid");
-  const amount = Number(payload.amount ?? 5);
+  const difficulty = pickString([payload.difficulty], "Medium");
+  const templateId = typeof payload.templateId === "string" ? payload.templateId.trim() : undefined;
+  let amount = Number(payload.amount ?? DEFAULT_QUESTIONS);
   const userId = await getRequestUserId(payload);
   const techStackList = normalizeTechstack(payload.techstack ?? payload.techStack);
+
+  // Validate amount
+  if (!Number.isFinite(amount) || amount < MIN_QUESTIONS) {
+    amount = DEFAULT_QUESTIONS;
+  } else if (amount > MAX_QUESTIONS) {
+    amount = MAX_QUESTIONS;
+  }
 
   serverDebugLog("Incoming payload normalized", {
     role,
     level,
     type,
+      difficulty,
+      templateId,
     amount,
     userId,
     techstackCount: techStackList.length,
@@ -227,60 +262,126 @@ export async function POST(request: Request) {
   try {
     if (!userId) {
       return Response.json(
-        {
-          success: false,
-          error:
-            "Missing required user identity. Provide session cookie or one of: userId, userid, uid.",
+        { success: false, error: "Authentication required" },
+        { status: 401 }
+      );
+    }
+
+    // Check rate limit
+    const rateLimitResult = checkInterviewRateLimit(userId);
+    if (!rateLimitResult.success) {
+      const resetDate = new Date(rateLimitResult.resetAt);
+      const resetTimeString = resetDate.toLocaleTimeString();
+      
+      return Response.json(
+        { 
+          success: false, 
+          error: `Rate limit exceeded. You can generate more interviews after ${resetTimeString}`,
+          resetAt: rateLimitResult.resetAt,
+          remaining: 0
+        },
+        { status: 429 }
+      );
+    }
+
+    serverDebugLog("Rate limit check passed", {
+      remaining: rateLimitResult.remaining,
+      resetAt: new Date(rateLimitResult.resetAt).toISOString(),
+    });
+
+    // Validate tech stack
+    if (techStackList.length < MIN_TECHSTACK_ITEMS && !payload.questions) {
+      return Response.json(
+        { 
+          success: false, 
+          error: "Please specify at least one technology or provide custom questions" 
         },
         { status: 400 }
       );
     }
 
     let questions = parseQuestions(payload.questions);
+    let generatedPrompt = "";
+    let generatedText = "";
+    let cacheHit = false;
 
     if (!questions.length) {
-      const prompt = buildInterviewPrompt({
+      // Try to get from cache first
+      const cachedQuestions = await getCachedQuestions({
         role,
         level,
-        techStackList,
+        techstack: techStackList,
         type,
         amount,
       });
 
-      if (!process.env.OPENROUTER_API_KEY?.trim()) {
-        return Response.json(
-          {
-            success: false,
-            error: "Missing OPENROUTER_API_KEY. Configure OpenRouter in .env.local.",
-          },
-          { status: 500 }
-        );
+      if (cachedQuestions && cachedQuestions.length > 0) {
+        questions = cachedQuestions;
+        cacheHit = true;
+        
+        serverDebugLog("Questions from cache", {
+          cachedQuestionsCount: questions.length,
+        });
+      } else {
+        // Generate new questions
+        generatedPrompt = buildInterviewPrompt({
+          role,
+          level,
+          techStackList,
+          type,
+          amount,
+          difficulty,
+        });
+
+        generatedText = await generateQuestionsWithOpenRouter(generatedPrompt);
+        
+        serverDebugLog("Questions generated", {
+          model: process.env.OPENROUTER_MODEL?.trim() || DEFAULT_MODEL,
+        });
+
+        questions = parseQuestions(generatedText);
+        
+        serverDebugLog("Questions parsed", {
+          parsedQuestionsCount: questions.length,
+        });
+
+        // Cache the generated questions for future use
+        if (questions.length > 0) {
+          cacheQuestions(
+            {
+              role,
+              level,
+              techstack: techStackList,
+              type,
+              amount: questions.length,
+            },
+            questions
+          ).catch((error) => {
+            console.error("Failed to cache questions:", error);
+          });
+        }
       }
-
-      const generatedText = await generateQuestionsWithOpenRouter(prompt);
-      serverDebugLog("Questions generated via OpenRouter", {
-        model: process.env.OPENROUTER_MODEL?.trim() || "openai/gpt-4o-mini",
-      });
-
-      questions = parseQuestions(generatedText);
-      serverDebugLog("Questions parsed", {
-        parsedQuestionsCount: questions.length,
-      });
     }
 
     if (!questions.length) {
       return Response.json(
-        { success: false, error: "Failed to generate valid interview questions" },
+        { success: false, error: "Failed to generate interview questions. Please try again." },
         { status: 500 }
       );
     }
 
+    // Update amount to match actual questions generated
+    const actualAmount = questions.length;
+
     const interview = {
-      role: role,
-      type: type,
-      level: level,
+      role,
+      type,
+      level,
+      difficulty,
+      templateId,
       techstack: techStackList,
       questions,
+      amount: actualAmount,
       userId,
       finalized: true,
       coverImage: getRandomInterviewCover(),
@@ -294,10 +395,25 @@ export async function POST(request: Request) {
       role,
       level,
       type,
-      amount,
+      requestedAmount: amount,
+      actualAmount,
       userId,
-      questionsCount: questions.length,
+      cacheHit,
     });
+
+    // Track API cost only if not from cache (async, don't wait)
+    if (!cacheHit && generatedPrompt && generatedText) {
+      trackApiCost({
+        userId,
+        model: process.env.OPENROUTER_MODEL?.trim() || DEFAULT_MODEL,
+        operation: "interview-generation",
+        inputText: generatedPrompt,
+        outputText: generatedText,
+        interviewId: interviewRef.id,
+      }).catch((error) => {
+        console.error("Cost tracking failed:", error);
+      });
+    }
 
     return Response.json(
       {
@@ -306,18 +422,27 @@ export async function POST(request: Request) {
         role,
         level,
         type,
-        amount,
+        amount: actualAmount,
         techstack: techStackList,
         userId,
-        questionsCount: questions.length,
       },
       { status: 200 }
     );
   } catch (error) {
-    console.error("Error:", error);
-    const message = error instanceof Error ? error.message : "Unknown server error";
+    console.error("Interview generation error:", error);
+    const message = error instanceof Error ? error.message : "Server error occurred";
     serverDebugLog("Generate route failed", { message });
-    return Response.json({ success: false, error: message }, { status: 500 });
+    
+    // Return user-friendly error
+    return Response.json(
+      { 
+        success: false, 
+        error: message.includes("AI service") || message.includes("Authentication") || message.includes("credits")
+          ? message 
+          : "Failed to generate interview. Please try again."
+      },
+      { status: 500 }
+    );
   }
 }
 

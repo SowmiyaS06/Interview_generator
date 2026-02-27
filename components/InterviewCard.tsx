@@ -4,26 +4,22 @@ import Image from "next/image";
 
 import { Button } from "./ui/button";
 import DisplayTechIcons from "./DisplayTechIcons";
+import DeleteInterviewButton from "./DeleteInterviewButton";
 
-import { cn, getRandomInterviewCover } from "@/lib/utils";
-import { getFeedbackByInterviewId } from "@/lib/actions/general.action";
+import { cn } from "@/lib/utils";
 
-const InterviewCard = async ({
+const InterviewCard = ({
   interviewId,
   userId,
   role,
   type,
+  difficulty,
   techstack,
   createdAt,
+  coverImage,
+  showDelete = false,
+  feedback = null,
 }: InterviewCardProps) => {
-  const feedback =
-    userId && interviewId
-      ? await getFeedbackByInterviewId({
-          interviewId,
-          userId,
-        })
-      : null;
-
   const normalizedType = /mix/gi.test(type) ? "Mixed" : type;
 
   const badgeColor =
@@ -39,7 +35,13 @@ const InterviewCard = async ({
     : "N/A";
 
   return (
-    <div className="card-border w-90 max-sm:w-full min-h-96">
+    <div className="card-border w-90 max-sm:w-full min-h-96 relative">
+      {showDelete && interviewId && (
+        <div className="absolute top-3 left-3 z-10">
+          <DeleteInterviewButton interviewId={interviewId} />
+        </div>
+      )}
+      
       <div className="card-interview">
         <div>
           {/* Type Badge */}
@@ -54,15 +56,19 @@ const InterviewCard = async ({
 
           {/* Cover Image */}
           <Image
-            src={getRandomInterviewCover()}
+            src={coverImage || "/covers/default.png"}
             alt="cover-image"
             width={90}
             height={90}
-            className="rounded-full object-fit size-22.5"
+            className="rounded-full object-cover size-22.5"
           />
 
           {/* Interview Role */}
           <h3 className="mt-5 capitalize">{role} Interview</h3>
+
+          {difficulty && (
+            <p className="text-sm text-primary-200 mt-1">Difficulty: {difficulty}</p>
+          )}
 
           {/* Date & Score */}
           <div className="flex flex-row gap-5 mt-3">
@@ -92,7 +98,7 @@ const InterviewCard = async ({
         <div className="flex flex-row justify-between">
           <DisplayTechIcons techStack={techstack} />
 
-          <Button className="btn-primary">
+          <Button variant="default">
             <Link
               href={
                 feedback

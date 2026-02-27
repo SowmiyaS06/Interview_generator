@@ -1,9 +1,17 @@
+"use client";
+
 import Image from "next/image";
+import { useState } from "react";
 
 import { cn, getTechLogos } from "@/lib/utils";
 
-const DisplayTechIcons = async ({ techStack }: TechIconProps) => {
-  const techIcons = await getTechLogos(techStack);
+const DisplayTechIcons = ({ techStack }: TechIconProps) => {
+  const techIcons = getTechLogos(techStack);
+  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+
+  const handleImageError = (tech: string) => {
+    setImageErrors((prev) => new Set(prev).add(tech));
+  };
 
   return (
     <div className="flex flex-row">
@@ -18,11 +26,12 @@ const DisplayTechIcons = async ({ techStack }: TechIconProps) => {
           <span className="tech-tooltip">{tech}</span>
 
           <Image
-            src={url}
+            src={imageErrors.has(tech) ? "/tech.svg" : url}
             alt={tech}
             width={100}
             height={100}
             className="size-5"
+            onError={() => handleImageError(tech)}
           />
         </div>
       ))}

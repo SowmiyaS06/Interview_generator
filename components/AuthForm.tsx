@@ -9,6 +9,7 @@ import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FirebaseError } from "firebase/app";
+import { useState, useEffect } from "react";
 
 import {
   createUserWithEmailAndPassword,
@@ -49,6 +50,11 @@ const getAuthErrorMessage = (error: unknown) => {
 const AuthForm = ({ type }: { type: FormType }) => {
   const router = useRouter();
   const isSignIn = type === "sign-in";
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const formSchema = z
     .object({
@@ -234,6 +240,27 @@ const AuthForm = ({ type }: { type: FormType }) => {
   };
 
   const isSubmitting = form.formState.isSubmitting;
+
+  if (!mounted) {
+    return (
+      <div className="card-border lg:min-w-141.5">
+        <div className="flex flex-col gap-6 card py-14 px-10">
+          <div className="flex flex-row gap-2 justify-center">
+            <Image src="/logo.svg" alt="logo" height={32} width={38} />
+            <h2 className="text-primary-100">PrepWise</h2>
+          </div>
+          <h3>{isSignIn ? "Welcome back" : "Create your account"}</h3>
+          <div className="w-full space-y-6 mt-4">
+            <div className="h-16 bg-card-secondary/50 rounded animate-pulse" />
+            <div className="h-16 bg-card-secondary/50 rounded animate-pulse" />
+            <div className="h-16 bg-card-secondary/50 rounded animate-pulse" />
+            {!isSignIn && <div className="h-16 bg-card-secondary/50 rounded animate-pulse" />}
+            <div className="h-10 bg-card-secondary/50 rounded animate-pulse" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="card-border lg:min-w-141.5">

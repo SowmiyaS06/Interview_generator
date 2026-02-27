@@ -1,2 +1,0 @@
-STATUS=500
-{"success":false,"error":"Missing OPENROUTER_API_KEY. Configure OpenRouter in .env.local."}
