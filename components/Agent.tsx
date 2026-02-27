@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-import { cn } from "@/lib/utils";
+import { cn, getUserAvatar } from "@/lib/utils";
 import { getVapi } from "@/lib/vapi.sdk";
 import { interviewer } from "@/constants";
 import { createFeedback } from "@/lib/actions/general.action";
@@ -400,7 +400,8 @@ const Agent = ({
   const [messages, setMessages] = useState<SavedMessage[]>([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isGeneratingInterview, setIsGeneratingInterview] = useState(false);
-  const [generatedPayload, setGeneratedPayload] = useState<GenerateInterviewPayload | null>(null);
+  
+  // Refs for managing state during calls
   const generatedPayloadRef = useRef<GenerateInterviewPayload | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const lastUserTranscriptAtRef = useRef<number | null>(null);
@@ -408,9 +409,12 @@ const Agent = ({
   const suppressFinishRef = useRef(false);
   const autoStopTriggeredRef = useRef(false);
   const endingGenerateCallRef = useRef(false);
-  const endingInterviewCallRef = useRef(false);
   const lastEjectionToastAtRef = useRef(0);
   const hasUserSpokenRef = useRef(false);
+  const isGeneratingRef = useRef(false);
+  const feedbackGeneratedRef = useRef(false);
+  const connectingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   const lastMessage = messages[messages.length - 1]?.content;
 
   const hasCompleteInterviewPayload = useCallback((payload: GenerateInterviewPayload | null) => {
@@ -436,15 +440,28 @@ const Agent = ({
   }, [callStatus]);
 
 
-  const resetCallState = () => {
+  const resetCallState = useCallback(() => {
+    // Clean up microphone stream
     if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach((track) => track.stop());
       micStreamRef.current = null;
     }
 
+    // Clear timeout if exists
+    if (connectingTimeoutRef.current) {
+      clearTimeout(connectingTimeoutRef.current);
+      connectingTimeoutRef.current = null;
+    }
+
+    // Reset all refs
+    suppressFinishRef.current = false;
+    autoStopTriggeredRef.current = false;
+    endingGenerateCallRef.current = false;
+    feedbackGeneratedRef.current = false;
+    
     setCallStatus(CallStatus.INACTIVE);
     setIsSpeaking(false);
-  };
+  }, []);
 
   const handleEjectionGracefully = useCallback((message?: string) => {
     if (!isMeetingEndedEjection(message)) return false;
@@ -473,7 +490,7 @@ const Agent = ({
   }, [type]);
 
   const saveGeneratedInterview = useCallback(async () => {
-    const payloadToSave = generatedPayloadRef.current ?? generatedPayload;
+    const payloadToSave = generatedPayloadRef.current;
 
     if (!payloadToSave) {
       debugLog("No generated payload captured from workflow messages.");
@@ -510,12 +527,16 @@ const Agent = ({
     };
     debugLog("Generate API response", body);
     return body.success ? (body.interviewId ?? null) : null;
-  }, [generatedPayload]);
+  }, []);
 
   const runInterviewGeneration = useCallback(async () => {
-    if (isGeneratingInterview) return;
+    // Use ref to prevent race condition
+    if (isGeneratingRef.current) {
+      debugLog("Generation already in progress, skipping");
+      return;
+    }
 
-    const payloadReady = generatedPayloadRef.current ?? generatedPayload;
+    const payloadReady = generatedPayloadRef.current;
 
     if (!hasCompleteInterviewPayload(payloadReady)) {
       toast.error("Interview details were not captured correctly. Please try the call again.");
@@ -523,12 +544,10 @@ const Agent = ({
       return;
     }
 
+    isGeneratingRef.current = true;
     setIsGeneratingInterview(true);
 
     try {
-      generatedPayloadRef.current = payloadReady;
-      setGeneratedPayload(payloadReady);
-
       const generatedInterviewId = await saveGeneratedInterview();
       if (generatedInterviewId) {
         toast.success("Interview generated and saved.");
@@ -540,13 +559,14 @@ const Agent = ({
       toast.error("Failed to generate interview.");
     } catch (error) {
       const details = getErrorDetails(error);
-      console.log("Failed to persist generated interview:", details);
-      toast.error(`Interview save failed: ${details.message}`);
+      console.error("Failed to persist generated interview:", details);
+      toast.error(details.message || "Interview save failed");
     } finally {
+      isGeneratingRef.current = false;
       setIsGeneratingInterview(false);
       resetCallState();
     }
-  }, [generatedPayload, hasCompleteInterviewPayload, isGeneratingInterview, router, saveGeneratedInterview]);
+  }, [hasCompleteInterviewPayload, router, saveGeneratedInterview, resetCallState]);
 
   useEffect(() => {
     const onUnhandledRejection = (event: PromiseRejectionEvent) => {
@@ -622,19 +642,19 @@ const Agent = ({
     const endInterviewCallAndContinue = () => {
       if (
         type !== "interview" ||
-        callStatusRef.current !== CallStatus.ACTIVE ||
-        endingInterviewCallRef.current
+        callStatusRef.current !== CallStatus.ACTIVE
       ) {
         return;
       }
 
-      endingInterviewCallRef.current = true;
+      suppressFinishRef.current = true;
+      setCallStatus(CallStatus.FINISHED);
       debugLog("Ending interview call after assistant closing phrase");
 
       try {
         vapi.stop();
       } catch {
-        setCallStatus(CallStatus.FINISHED);
+        // Call already ended
       }
     };
 
@@ -642,11 +662,11 @@ const Agent = ({
       suppressFinishRef.current = false;
       autoStopTriggeredRef.current = false;
       endingGenerateCallRef.current = false;
-      endingInterviewCallRef.current = false;
       hasUserSpokenRef.current = false;
+      feedbackGeneratedRef.current = false;
       generatedPayloadRef.current = null;
-      setGeneratedPayload(null);
       setCallStatus(CallStatus.ACTIVE);
+      setMessages([]);
       debugLog("Call started", { type });
     };
 
@@ -712,10 +732,9 @@ const Agent = ({
       }
 
       const payload = extractPayloadFromMessage(message);
-      if (payload) {
+      if (payload && !generatedPayloadRef.current) {
         debugLog("Captured interview payload from workflow message", payload);
         generatedPayloadRef.current = payload;
-        setGeneratedPayload(payload);
 
         if (hasCompleteInterviewPayload(payload)) {
           debugLog("Payload marked usable for generation", {
@@ -726,7 +745,7 @@ const Agent = ({
           });
           completeGenerationFlow();
         } else {
-          debugLog("Payload ignored as not usable", payload);
+          debugLog("Payload not yet complete", payload);
         }
       }
     };
@@ -791,45 +810,49 @@ const Agent = ({
   }, [callStatus]);
 
   useEffect(() => {
-    const handleGenerateFeedback = async (messages: SavedMessage[]) => {
-      console.log("handleGenerateFeedback");
+    const handleGenerateFeedback = async () => {
+      // Prevent duplicate feedback generation
+      if (feedbackGeneratedRef.current) {
+        debugLog("Feedback already generated, skipping");
+        return;
+      }
 
-      const { success, feedbackId: id } = await createFeedback({
+      if (messages.length < 3) {
+        toast.error("Interview too short to generate feedback");
+        router.push("/");
+        return;
+      }
+
+      feedbackGeneratedRef.current = true;
+      
+      debugLog("Generating feedback", { messageCount: messages.length });
+
+      const { success, feedbackId: id, message } = await createFeedback({
         interviewId: interviewId!,
         transcript: messages,
         feedbackId,
       });
 
       if (success && id) {
+        toast.success(message || "Feedback generated successfully");
         router.push(`/interview/${interviewId}/feedback`);
       } else {
-        console.log("Error saving feedback");
+        toast.error("Failed to generate feedback. Redirecting to home.");
         router.push("/");
       }
     };
 
-    if (callStatus === CallStatus.FINISHED) {
+    if (callStatus === CallStatus.FINISHED && !feedbackGeneratedRef.current) {
       if (type === "generate") {
         runInterviewGeneration();
-      } else {
-        handleGenerateFeedback(messages);
+      } else if (interviewId) {
+        handleGenerateFeedback();
       }
     }
-  }, [
-    messages,
-    callStatus,
-    feedbackId,
-    interviewId,
-    router,
-    type,
-    userId,
-    generatedPayload,
-    isGeneratingInterview,
-    runInterviewGeneration,
-  ]);
+  }, [callStatus, type, interviewId, feedbackId, router, runInterviewGeneration, messages]);
 
   const handleCall = async () => {
-    if (isGeneratingInterview) {
+    if (isGeneratingRef.current || isGeneratingInterview) {
       return;
     }
 
@@ -837,23 +860,29 @@ const Agent = ({
       return;
     }
 
+    // Reset feedback flag for new call
+    feedbackGeneratedRef.current = false;
+
     setCallStatus(CallStatus.CONNECTING);
 
-    const connectingTimeout = setTimeout(() => {
+    // Store timeout in ref for proper cleanup
+    connectingTimeoutRef.current = setTimeout(() => {
       if (callStatusRef.current === CallStatus.CONNECTING) {
         toast.error("Call connection timed out. Please try again.");
         try {
           if (vapi) vapi.stop();
         } catch {
-          console.log("No active Vapi call to stop after timeout.");
+          debugLog("No active Vapi call to stop after timeout");
         }
         resetCallState();
       }
     }, 15000);
 
+    let stream: MediaStream | null = null;
+
     try {
       if (!vapi) {
-        throw new Error("Missing NEXT_PUBLIC_VAPI_WEB_TOKEN in environment variables.");
+        throw new Error("Voice service not configured");
       }
 
       const workflowId = process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID;
@@ -862,8 +891,12 @@ const Agent = ({
         throw new Error("Your browser does not support microphone access.");
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStreamRef.current?.getTracks().forEach((track) => track.stop());
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Clean up old stream and assign new one immediately
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
       micStreamRef.current = stream;
 
       const [audioTrack] = stream.getAudioTracks();
@@ -884,7 +917,7 @@ const Agent = ({
 
       if (type === "generate") {
         if (!workflowId) {
-          throw new Error("Missing NEXT_PUBLIC_VAPI_WORKFLOW_ID in environment variables.");
+          throw new Error("Workflow not configured");
         }
 
         debugLog("Starting generate workflow", {
@@ -911,16 +944,22 @@ const Agent = ({
           },
         });
       }
+
+      // Clear timeout on successful connection
+      if (connectingTimeoutRef.current) {
+        clearTimeout(connectingTimeoutRef.current);
+        connectingTimeoutRef.current = null;
+      }
     } catch (error) {
+      // Clean up stream on error
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      
       const details = getErrorDetails(error);
-      console.log("Failed to start call details:", {
-        raw: error,
-        ...details,
-      });
-      toast.error(`Start call failed (${details.code}): ${details.message}`);
+      console.error("Failed to start call:", details);
+      toast.error(details.message || "Failed to start call");
       resetCallState();
-    } finally {
-      clearTimeout(connectingTimeout);
     }
   };
 
@@ -964,11 +1003,12 @@ const Agent = ({
         <div className="card-border">
           <div className="card-content">
             <Image
-              src="/user-avatar.png"
+              src={getUserAvatar(userName, userId || "guest")}
               alt="profile-image"
               width={539}
               height={539}
               className="rounded-full object-cover size-30"
+              unoptimized
             />
             <h3>{userName}</h3>
           </div>
@@ -993,13 +1033,13 @@ const Agent = ({
       <div className="w-full flex justify-center">
         {callStatus !== "ACTIVE" ? (
           <button
-            className={cn("relative btn-call", isGeneratingInterview && "opacity-80")}
+            className={cn("relative w-32 h-32 rounded-full bg-primary-100 hover:bg-primary-200 transition-all duration-300 text-white font-semibold text-xl shadow-lg", isGeneratingInterview && "opacity-80 cursor-not-allowed")}
             onClick={() => handleCall()}
             disabled={isGeneratingInterview}
           >
             <span
               className={cn(
-                "absolute animate-ping rounded-full opacity-75",
+                "absolute animate-ping rounded-full opacity-75 w-32 h-32 bg-primary-100",
                 callStatus !== "CONNECTING" && "hidden"
               )}
             />
@@ -1013,7 +1053,7 @@ const Agent = ({
             </span>
           </button>
         ) : (
-          <button className="btn-disconnect" onClick={() => handleDisconnect()}>
+          <button className="w-32 h-32 rounded-full bg-destructive hover:bg-destructive/90 transition-all duration-300 text-white font-semibold text-xl shadow-lg" onClick={() => handleDisconnect()}>
             End
           </button>
         )}

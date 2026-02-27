@@ -3,28 +3,57 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
-import InterviewCard from "@/components/InterviewCard";
+import InterviewsList from "@/components/InterviewsList";
+import StatisticsDisplay from "@/components/StatisticsDisplay";
 
 import { getCurrentUser } from "@/lib/actions/auth.action";
 import {
   getInterviewsByUserId,
   getLatestInterviews,
+  getFeedbackByInterviewId,
 } from "@/lib/actions/general.action";
+import { getUserStatistics } from "@/lib/actions/statistics.action";
 
 async function Home() {
   const user = await getCurrentUser();
   if (!user) redirect("/sign-in");
 
-  const [userInterviews, allInterview] = await Promise.all([
+  const [userInterviews, allInterview, statistics] = await Promise.all([
     getInterviewsByUserId(user.id),
     getLatestInterviews({ userId: user.id }),
+    getUserStatistics(user.id),
   ]);
 
   const safeUserInterviews = userInterviews ?? [];
   const safeAllInterviews = allInterview ?? [];
 
-  const hasPastInterviews = safeUserInterviews.length > 0;
-  const hasUpcomingInterviews = safeAllInterviews.length > 0;
+  // Fetch feedbacks for user interviews
+  const userFeedbacksArray = await Promise.all(
+    safeUserInterviews.map((interview) =>
+      getFeedbackByInterviewId({
+        interviewId: interview.id,
+        userId: user.id,
+      }).then((feedback) => ({ id: interview.id, feedback }))
+    )
+  );
+
+  // Fetch feedbacks for all interviews
+  const allFeedbacksArray = await Promise.all(
+    safeAllInterviews.map((interview) =>
+      getFeedbackByInterviewId({
+        interviewId: interview.id,
+        userId: user.id,
+      }).then((feedback) => ({ id: interview.id, feedback }))
+    )
+  );
+
+  // Create maps for easy lookup
+  const userFeedbacksMap = new Map(
+    userFeedbacksArray.map((item) => [item.id, item.feedback])
+  );
+  const allFeedbacksMap = new Map(
+    allFeedbacksArray.map((item) => [item.id, item.feedback])
+  );
 
   return (
     <>
@@ -35,7 +64,7 @@ async function Home() {
             Practice real interview questions & get instant feedback
           </p>
 
-          <Button asChild className="btn-primary max-sm:w-full">
+          <Button asChild variant="default" className="max-sm:w-full">
             <Link href="/interview">Start an Interview</Link>
           </Button>
         </div>
@@ -49,48 +78,32 @@ async function Home() {
         />
       </section>
 
+      {/* Statistics Section */}
+      {statistics && statistics.totalFeedbacks > 0 && (
+        <section className="flex flex-col gap-6 mt-8">
+          <h2>Your Performance Statistics</h2>
+          <StatisticsDisplay stats={statistics} />
+        </section>
+      )}
+
       <section className="flex flex-col gap-6 mt-8">
         <h2>Your Interviews</h2>
-
-        <div className="interviews-section">
-          {hasPastInterviews ? (
-            safeUserInterviews.map((interview) => (
-              <InterviewCard
-                key={interview.id}
-                userId={user.id}
-                interviewId={interview.id}
-                role={interview.role}
-                type={interview.type}
-                techstack={interview.techstack}
-                createdAt={interview.createdAt}
-              />
-            ))
-          ) : (
-            <p>You haven&apos;t taken any interviews yet</p>
-          )}
-        </div>
+        <InterviewsList
+          interviews={safeUserInterviews}
+          userId={user.id}
+          showDelete={true}
+          feedbacks={userFeedbacksMap}
+        />
       </section>
 
       <section className="flex flex-col gap-6 mt-8">
         <h2>Take Interviews</h2>
-
-        <div className="interviews-section">
-          {hasUpcomingInterviews ? (
-            safeAllInterviews.map((interview) => (
-              <InterviewCard
-                key={interview.id}
-                userId={user.id}
-                interviewId={interview.id}
-                role={interview.role}
-                type={interview.type}
-                techstack={interview.techstack}
-                createdAt={interview.createdAt}
-              />
-            ))
-          ) : (
-            <p>There are no interviews available</p>
-          )}
-        </div>
+        <InterviewsList
+          interviews={safeAllInterviews}
+          userId={user.id}
+          showDelete={false}
+          feedbacks={allFeedbacksMap}
+        />
       </section>
     </>
   );

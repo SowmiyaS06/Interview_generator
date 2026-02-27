@@ -201,6 +201,89 @@ export const interviewCovers = [
   "/yahoo.png",
 ];
 
+export const interviewTemplates: InterviewTemplate[] = [
+  {
+    id: "fe-react-core",
+    title: "Frontend React Core",
+    role: "Frontend Developer",
+    level: "Mid",
+    type: "Technical",
+    difficulty: "Medium",
+    techstack: ["React", "TypeScript", "CSS"],
+    questions: [
+      "Explain the difference between state and props in React.",
+      "How do you optimize React component rendering?",
+      "Describe how you would structure a large React application.",
+      "What are hooks and why are they useful?",
+      "How do you handle forms and validation in React?",
+    ],
+  },
+  {
+    id: "fe-js-fundamentals",
+    title: "JavaScript Fundamentals",
+    role: "Frontend Developer",
+    level: "Junior",
+    type: "Technical",
+    difficulty: "Easy",
+    techstack: ["JavaScript", "HTML", "CSS"],
+    questions: [
+      "What is the difference between let, const, and var?",
+      "Explain event bubbling in the DOM.",
+      "How does the browser render HTML and CSS?",
+      "What is a closure and when would you use it?",
+      "How do you handle asynchronous code in JavaScript?",
+    ],
+  },
+  {
+    id: "be-node-api",
+    title: "Node.js API Design",
+    role: "Backend Developer",
+    level: "Mid",
+    type: "Technical",
+    difficulty: "Medium",
+    techstack: ["Node.js", "Express", "PostgreSQL"],
+    questions: [
+      "How do you design RESTful endpoints for a new feature?",
+      "What strategies do you use for error handling in Node.js APIs?",
+      "How do you secure an API against common vulnerabilities?",
+      "Explain how you would handle database transactions.",
+      "How would you implement pagination in a large dataset?",
+    ],
+  },
+  {
+    id: "fullstack-system",
+    title: "Fullstack System Design",
+    role: "Fullstack Engineer",
+    level: "Senior",
+    type: "Mixed",
+    difficulty: "Hard",
+    techstack: ["React", "Node.js", "Redis"],
+    questions: [
+      "Design a scalable notification system for a SaaS product.",
+      "How would you ensure data consistency across services?",
+      "Explain your caching strategy for a high-traffic app.",
+      "How do you monitor performance across the stack?",
+      "What trade-offs influence your choice of database?",
+    ],
+  },
+  {
+    id: "behavioral-core",
+    title: "Behavioral Essentials",
+    role: "Software Engineer",
+    level: "Mid",
+    type: "Behavioral",
+    difficulty: "Medium",
+    techstack: ["Communication", "Leadership"],
+    questions: [
+      "Tell me about a time you had to resolve a conflict on a team.",
+      "Describe a project you led and what you learned.",
+      "How do you prioritize tasks when everything is urgent?",
+      "Tell me about a failure and how you responded.",
+      "How do you handle feedback from peers or managers?",
+    ],
+  },
+];
+
 export const dummyInterviews: Interview[] = [
   {
     id: "1",

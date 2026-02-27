@@ -2,7 +2,6 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 
 import Agent from "@/components/Agent";
-import { getRandomInterviewCover } from "@/lib/utils";
 
 import {
   getFeedbackByInterviewId,
@@ -10,6 +9,9 @@ import {
 } from "@/lib/actions/general.action";
 import { getCurrentUser } from "@/lib/actions/auth.action";
 import DisplayTechIcons from "@/components/DisplayTechIcons";
+import TranscriptViewer from "@/components/TranscriptViewer";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 const InterviewDetails = async ({ params }: RouteParams) => {
   const { id } = await params;
@@ -39,7 +41,7 @@ const InterviewDetails = async ({ params }: RouteParams) => {
         <div className="flex flex-row gap-4 items-center max-sm:flex-col">
           <div className="flex flex-row gap-4 items-center">
             <Image
-              src={getRandomInterviewCover()}
+              src={interview.coverImage || "/covers/default.png"}
               alt="cover-image"
               width={40}
               height={40}
@@ -51,10 +53,44 @@ const InterviewDetails = async ({ params }: RouteParams) => {
           <DisplayTechIcons techStack={interview.techstack} />
         </div>
 
-        <p className="bg-dark-200 px-4 py-2 rounded-lg h-fit">
-          {interview.type}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="bg-dark-200 px-4 py-2 rounded-lg h-fit">
+            {interview.type}
+          </p>
+          {interview.difficulty && (
+            <p className="bg-dark-200 px-4 py-2 rounded-lg h-fit">{interview.difficulty}</p>
+          )}
+        </div>
       </div>
+
+      {feedback && (
+        <section className="flex flex-col gap-4 mt-6">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h3>Interview Summary</h3>
+            <Button asChild variant="outline">
+              <Link href={`/interview/${id}/feedback`}>View full feedback</Link>
+            </Button>
+          </div>
+
+          <p>{feedback.finalAssessment}</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {feedback.categoryScores.map((category, index) => (
+              <div key={index} className="bg-dark-200 border border-dark-300 rounded-lg p-4">
+                <p className="font-bold">
+                  {category.name} ({category.score}/100)
+                </p>
+                <p>{category.comment}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <h3>Transcript</h3>
+            <TranscriptViewer transcript={feedback.transcript} />
+          </div>
+        </section>
+      )}
 
       <Agent
         userName={user.name}

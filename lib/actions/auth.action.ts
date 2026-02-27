@@ -142,8 +142,48 @@ export async function getCurrentUser(): Promise<User | null> {
   }
 }
 
+export async function updateUserProfile(params: {
+  name?: string;
+  profileUrl?: string;
+  resumeUrl?: string;
+}) {
+  const userId = await getCurrentUserId();
+  if (!userId) return { success: false, message: "Unauthorized" };
+
+  const updates: Record<string, string> = {};
+  if (params.name) updates.name = params.name.trim();
+  if (params.profileUrl) updates.profileUrl = params.profileUrl.trim();
+  if (params.resumeUrl) updates.resumeUrl = params.resumeUrl.trim();
+
+  if (!Object.keys(updates).length) {
+    return { success: false, message: "No changes provided" };
+  }
+
+  try {
+    await db.collection("users").doc(userId).set(updates, { merge: true });
+    return { success: true, message: "Profile updated" };
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    return { success: false, message: "Failed to update profile" };
+  }
+}
+
 // Check if user is authenticated
 export async function isAuthenticated() {
   const user = await getCurrentUser();
   return !!user;
+}
+
+// Check if current user is an admin
+export async function isAdmin() {
+  const user = await getCurrentUser();
+  if (!user?.email) return false;
+  
+  const raw = process.env.ADMIN_EMAILS || "";
+  const allowed = raw
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+
+  return allowed.includes(user.email.toLowerCase());
 }
