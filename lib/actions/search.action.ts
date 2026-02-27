@@ -19,13 +19,15 @@ export async function searchInterviews(filters: {
   }
 
   try {
+    console.log("Search filters received:", filters);
+    
     let query = db
       .collection("interviews")
       .where("userId", "==", userId) as any;
 
-    // Apply filters only if they exist (removed orderBy to avoid composite index)
-    // Sorting will be done client-side
     const snapshot = await query.get();
+    
+    console.log("Total interviews found:", snapshot.size);
     
     if (snapshot.empty) {
       return { success: true, interviews: [] };
@@ -37,30 +39,48 @@ export async function searchInterviews(filters: {
         ...doc.data(),
       }));
 
+    console.log("Initial interviews:", interviews.length);
+
     // Client-side filtering by roles
     if (filters.roles && filters.roles.length > 0) {
       interviews = interviews.filter(i => filters.roles!.includes(i.role));
+      console.log("After role filter:", interviews.length);
     }
 
     // Client-side filtering by difficulties
     if (filters.difficulties && filters.difficulties.length > 0) {
       interviews = interviews.filter(i => filters.difficulties!.includes(i.difficulty));
+      console.log("After difficulty filter:", interviews.length);
     }
 
     // Client-side filtering by types
     if (filters.types && filters.types.length > 0) {
       interviews = interviews.filter(i => filters.types!.includes(i.type));
+      console.log("After type filter:", interviews.length);
     }
 
-    // Sort by createdAt client-side
+    // Sort by createdAt client-side (newest first)
     interviews.sort((a, b) => {
       const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return dateB - dateA;
     });
 
-    // Filter by score range
-    if (filters.scoreRange) {
+    // Filter by date range
+    if (filters.dateRange && (filters.dateRange.start || filters.dateRange.end)) {
+      const startDate = filters.dateRange.start ? new Date(filters.dateRange.start).getTime() : 0;
+      const endDate = filters.dateRange.end ? new Date(filters.dateRange.end).getTime() : Date.now();
+
+      interviews = interviews.filter((interview) => {
+        if (!interview.createdAt) return false;
+        const interviewDate = new Date(interview.createdAt).getTime();
+        return interviewDate >= startDate && interviewDate <= endDate;
+      });
+      console.log("After date range filter:", interviews.length);
+    }
+
+    // Filter by score range (only if feedback exists)
+    if (filters.scoreRange && (filters.scoreRange.min > 0 || filters.scoreRange.max < 100)) {
       const feedbackMap = new Map();
       for (const interview of interviews) {
         const feedbackSnap = await db
@@ -71,35 +91,26 @@ export async function searchInterviews(filters: {
 
         if (!feedbackSnap.empty) {
           const feedback = feedbackSnap.docs[0].data();
-          feedbackMap.set(interview.id, feedback.totalScore);
+          feedbackMap.set(interview.id, feedback.totalScore || 0);
         }
       }
 
       interviews = interviews.filter((interview) => {
         const score = feedbackMap.get(interview.id);
-        if (score === undefined) return false;
+        // If no feedback/score, include the interview (don't filter out)
+        if (score === undefined) return true;
         return (
           score >= filters.scoreRange!.min &&
           score <= filters.scoreRange!.max
         );
       });
+      console.log("After score range filter:", interviews.length);
     }
 
-    // Filter by date range
-    if (filters.dateRange) {
-      const startDate = new Date(filters.dateRange.start).getTime();
-      const endDate = new Date(filters.dateRange.end).getTime();
-
-      interviews = interviews.filter((interview) => {
-        if (!interview.createdAt) return false;
-        const interviewDate = new Date(interview.createdAt).getTime();
-        return interviewDate >= startDate && interviewDate <= endDate;
-      });
-    }
-
-    // Filter by keywords in transcript
+    // Filter by keywords in transcript (only if keywords provided)
     if (filters.keywords && filters.keywords.length > 0) {
       const keywordSet = new Set(filters.keywords.map((k) => k.toLowerCase()));
+      const matchedInterviews: typeof interviews = [];
 
       for (const interview of interviews) {
         const feedbackSnap = await db
@@ -108,23 +119,36 @@ export async function searchInterviews(filters: {
           .limit(1)
           .get();
 
+        let hasKeyword = false;
+        
         if (!feedbackSnap.empty) {
           const feedback = feedbackSnap.docs[0].data();
           const transcript = (feedback.transcript || [])
             .map((t: any) => t.content.toLowerCase())
             .join(" ");
 
-          const hasKeyword = Array.from(keywordSet).some((keyword) =>
+          hasKeyword = Array.from(keywordSet).some((keyword) =>
             transcript.includes(keyword)
           );
+        } else {
+          // If no transcript, check if keyword matches position or role
+          const position = (interview.position || "").toLowerCase();
+          const role = (interview.role || "").toLowerCase();
+          hasKeyword = Array.from(keywordSet).some((keyword) =>
+            position.includes(keyword) || role.includes(keyword)
+          );
+        }
 
-          if (!hasKeyword) {
-            interviews = interviews.filter((i) => i.id !== interview.id);
-          }
+        if (hasKeyword) {
+          matchedInterviews.push(interview);
         }
       }
+
+      interviews = matchedInterviews;
+      console.log("After keyword filter:", interviews.length);
     }
 
+    console.log("Final result interviews:", interviews.length);
     return { success: true, interviews };
   } catch (error) {
     console.error("Error searching interviews:", error);
