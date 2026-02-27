@@ -221,3 +221,93 @@ export async function getInterviewsByUserId(
       return bTime - aTime;
     }) as Interview[];
 }
+
+export async function deleteInterview(interviewId: string) {
+  try {
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    // Verify ownership
+    const interview = await getInterviewById(interviewId);
+    if (!interview) {
+      return { success: false, error: "Interview not found" };
+    }
+
+    if (interview.userId !== userId) {
+      return { success: false, error: "You can only delete your own interviews" };
+    }
+
+    // Delete associated feedback
+    const feedbackQuery = await db
+      .collection("feedback")
+      .where("interviewId", "==", interviewId)
+      .where("userId", "==", userId)
+      .get();
+
+    const batch = db.batch();
+    feedbackQuery.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+
+    // Delete interview
+    batch.delete(db.collection("interviews").doc(interviewId));
+
+    await batch.commit();
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting interview:", error);
+    return { success: false, error: "Failed to delete interview" };
+  }
+}
+
+export async function enableFeedbackShare(interviewId: string) {
+  const userId = await getCurrentUserId();
+  if (!userId) return { success: false, error: "Unauthorized" };
+
+  const feedback = await getFeedbackByInterviewId({ interviewId, userId });
+  if (!feedback) return { success: false, error: "Feedback not found" };
+
+  const shareId = feedback.shareId ?? crypto.randomUUID();
+
+  await db.collection("feedback").doc(feedback.id).set(
+    {
+      shareId,
+    },
+    { merge: true }
+  );
+
+  return { success: true, shareId };
+}
+
+export async function disableFeedbackShare(interviewId: string) {
+  const userId = await getCurrentUserId();
+  if (!userId) return { success: false, error: "Unauthorized" };
+
+  const feedback = await getFeedbackByInterviewId({ interviewId, userId });
+  if (!feedback) return { success: false, error: "Feedback not found" };
+
+  await db.collection("feedback").doc(feedback.id).set(
+    {
+      shareId: null,
+    },
+    { merge: true }
+  );
+
+  return { success: true };
+}
+
+export async function getFeedbackByShareId(shareId: string): Promise<Feedback | null> {
+  const snapshot = await db
+    .collection("feedback")
+    .where("shareId", "==", shareId)
+    .limit(1)
+    .get();
+
+  if (snapshot.empty) return null;
+
+  const doc = snapshot.docs[0];
+  return { id: doc.id, ...doc.data() } as Feedback;
+}
