@@ -70,7 +70,7 @@ export default function StatisticsDisplay({ stats }: StatisticsDisplayProps) {
             <Award size={18} className="text-primary-100" />
           </div>
           <p className={`text-3xl font-bold ${getScoreColor(stats.averageScore)}`}>
-            {stats.averageScore}
+            {stats.averageScore.toFixed(2)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             From {stats.totalFeedbacks} interview{stats.totalFeedbacks !== 1 ? "s" : ""}
@@ -82,7 +82,7 @@ export default function StatisticsDisplay({ stats }: StatisticsDisplayProps) {
             <p className="text-sm text-muted-foreground">Highest Score</p>
             <TrendingUp size={18} className="text-green-500" />
           </div>
-          <p className="text-3xl font-bold text-green-500">{stats.highestScore}</p>
+          <p className="text-3xl font-bold text-green-500">{stats.highestScore.toFixed(2)}</p>
           <p className="text-xs text-muted-foreground mt-1">Personal best</p>
         </div>
 
@@ -91,7 +91,7 @@ export default function StatisticsDisplay({ stats }: StatisticsDisplayProps) {
             <p className="text-sm text-muted-foreground">Lowest Score</p>
             <TrendingDown size={18} className="text-red-500" />
           </div>
-          <p className="text-3xl font-bold text-red-500">{stats.lowestScore}</p>
+          <p className="text-3xl font-bold text-red-500">{stats.lowestScore.toFixed(2)}</p>
           <p className="text-xs text-muted-foreground mt-1">Room for improvement</p>
         </div>
 
@@ -123,7 +123,7 @@ export default function StatisticsDisplay({ stats }: StatisticsDisplayProps) {
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm font-medium">{label}</span>
                   <span className={`text-sm font-bold ${getScoreColor(score)}`}>
-                    {score}
+                    {score.toFixed(2)}
                   </span>
                 </div>
                 <div className="w-full bg-dark-200 rounded-full h-2">
@@ -157,7 +157,7 @@ export default function StatisticsDisplay({ stats }: StatisticsDisplayProps) {
                 <li key={index} className="flex justify-between items-center">
                   <span>{area.category}</span>
                   <span className="text-green-500 font-semibold">
-                    {Math.round(area.averageScore)}
+                    {area.averageScore.toFixed(2)}
                   </span>
                 </li>
               ))}
@@ -176,7 +176,7 @@ export default function StatisticsDisplay({ stats }: StatisticsDisplayProps) {
                 <li key={index} className="flex justify-between items-center">
                   <span>{area.category}</span>
                   <span className="text-yellow-500 font-semibold">
-                    {Math.round(area.averageScore)}
+                    {area.averageScore.toFixed(2)}
                   </span>
                 </li>
               ))}
@@ -211,8 +211,8 @@ export default function StatisticsDisplay({ stats }: StatisticsDisplayProps) {
                       style={{ width: `${role.averageScore}%` }}
                     />
                   </div>
-                  <span className={`font-bold w-12 text-right ${getScoreColor(role.averageScore)}`}>
-                    {Math.round(role.averageScore)}
+                  <span className={`font-bold w-16 text-right ${getScoreColor(role.averageScore)}`}>
+                    {role.averageScore.toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -235,7 +235,7 @@ export default function StatisticsDisplay({ stats }: StatisticsDisplayProps) {
                   </p>
                 </div>
                 <span className={`font-bold text-lg ${getScoreColor(performance.score)}`}>
-                  {performance.score}
+                  {performance.score.toFixed(2)}
                 </span>
               </div>
             ))}

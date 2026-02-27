@@ -27,7 +27,7 @@ export async function createGoal(
       priority,
       category,
       progress: 0,
-      status: "active",
+      status: "pending",
       milestones: [],
       createdAt: new Date().toISOString(),
     });
@@ -102,7 +102,7 @@ export async function updateGoalProgress(goalId: string, currentScore: number) {
     }
 
     const progress = Math.min(100, (currentScore / goal.targetScore) * 100);
-    const status = progress >= 100 ? "completed" : "active";
+    const status = progress >= 100 ? "completed" : progress > 0 ? "in_progress" : "pending";
 
     // Update milestones
     const milestones = (goal.milestones || []).map((m: any) => ({

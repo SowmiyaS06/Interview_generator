@@ -143,8 +143,9 @@ const QuickInterviewSetup = ({ user }: { user: User }) => {
     <div className="card-border w-full">
       <div className="card p-6 flex flex-col gap-6">
         <div className="flex flex-col gap-2">
-          <label className="text-sm text-light-100">Template</label>
+          <label htmlFor="template-select" className="text-sm text-light-100">Template</label>
           <select
+            id="template-select"
             value={templateId}
             onChange={(event) => {
               const value = event.target.value;
@@ -169,8 +170,9 @@ const QuickInterviewSetup = ({ user }: { user: User }) => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <label className="text-sm text-light-100">Level</label>
+            <label htmlFor="level-select" className="text-sm text-light-100">Level</label>
             <select
+              id="level-select"
               value={level}
               onChange={(event) => setLevel(event.target.value as (typeof levels)[number])}
               className="px-3 py-2 bg-dark-200 border border-dark-300 rounded-lg"
@@ -184,8 +186,9 @@ const QuickInterviewSetup = ({ user }: { user: User }) => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <label className="text-sm text-light-100">Type</label>
+            <label htmlFor="type-select" className="text-sm text-light-100">Type</label>
             <select
+              id="type-select"
               value={type}
               onChange={(event) => setType(event.target.value as (typeof types)[number])}
               className="px-3 py-2 bg-dark-200 border border-dark-300 rounded-lg"
@@ -199,8 +202,9 @@ const QuickInterviewSetup = ({ user }: { user: User }) => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <label className="text-sm text-light-100">Difficulty</label>
+            <label htmlFor="difficulty-select" className="text-sm text-light-100">Difficulty</label>
             <select
+              id="difficulty-select"
               value={difficulty}
               onChange={(event) => setDifficulty(event.target.value as (typeof difficulties)[number])}
               className="px-3 py-2 bg-dark-200 border border-dark-300 rounded-lg"

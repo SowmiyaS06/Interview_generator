@@ -158,7 +158,7 @@ export async function getUserStatistics(userId?: string): Promise<UserStatistics
         .replace(/([A-Z])/g, " $1")
         .replace(/^./, (str) => str.toUpperCase())
         .trim(),
-      averageScore: score,
+      averageScore: Math.round(score * 100) / 100,
     }));
 
     const weakAreas = categoryEntries.filter((c) => c.averageScore < 70).sort((a, b) => a.averageScore - b.averageScore);
@@ -208,23 +208,23 @@ export async function getUserStatistics(userId?: string): Promise<UserStatistics
       .map(([role, data]) => ({
         role,
         count: data.count,
-        averageScore: data.scores.reduce((sum, s) => sum + s, 0) / data.scores.length,
+        averageScore: Math.round((data.scores.reduce((sum, s) => sum + s, 0) / data.scores.length) * 100) / 100,
       }))
       .sort((a, b) => b.count - a.count);
 
     return {
       totalInterviews: interviewsSnapshot.size,
       totalFeedbacks: feedbacksSnapshot.size,
-      averageScore: Math.round(averageScore * 10) / 10,
-      highestScore,
-      lowestScore,
+      averageScore: Math.round(averageScore * 100) / 100,
+      highestScore: Math.round(highestScore * 100) / 100,
+      lowestScore: Math.round(lowestScore * 100) / 100,
       improvementTrend,
       categoryAverages: {
-        communicationSkills: Math.round(categoryAverages.communicationSkills * 10) / 10,
-        technicalKnowledge: Math.round(categoryAverages.technicalKnowledge * 10) / 10,
-        problemSolving: Math.round(categoryAverages.problemSolving * 10) / 10,
-        culturalFit: Math.round(categoryAverages.culturalFit * 10) / 10,
-        confidenceAndClarity: Math.round(categoryAverages.confidenceAndClarity * 10) / 10,
+        communicationSkills: Math.round(categoryAverages.communicationSkills * 100) / 100,
+        technicalKnowledge: Math.round(categoryAverages.technicalKnowledge * 100) / 100,
+        problemSolving: Math.round(categoryAverages.problemSolving * 100) / 100,
+        culturalFit: Math.round(categoryAverages.culturalFit * 100) / 100,
+        confidenceAndClarity: Math.round(categoryAverages.confidenceAndClarity * 100) / 100,
       },
       weakAreas,
       strongAreas,
