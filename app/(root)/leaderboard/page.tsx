@@ -20,9 +20,12 @@ export default function LeaderboardPage() {
     try {
       setError(null);
       const result = await getLeaderboard(100);
+      console.log('Leaderboard result:', result); // Debug log
       if (result.success && result.leaderboard) {
+        console.log('Number of users in leaderboard:', result.leaderboard.length); // Debug log
         setLeaderboard(result.leaderboard);
       } else {
+        console.log('No leaderboard data or failed:', result.error); // Debug log
         setLeaderboard([]); // No leaderboard data yet - normal for new users
       }
     } catch (err) {
@@ -138,15 +141,15 @@ export default function LeaderboardPage() {
                       {idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `#${entry.rank}`}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-white font-semibold">User {entry.userId?.slice(0, 8)}</td>
+                  <td className="px-6 py-4 text-white font-semibold">{entry.userName || `User ${entry.userId?.slice(0, 8)}`}</td>
                   <td className="px-6 py-4">
-                    <span className="bg-blue-700/50 text-blue-300 px-3 py-1 rounded-full text-sm">
-                      L{entry.level}
+                    <span className="bg-amber-700/50 text-amber-300 px-3 py-1 rounded-full text-sm font-semibold">
+                      L{entry.level || 1}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-white font-semibold">{entry.totalXP?.toLocaleString()}</td>
+                  <td className="px-6 py-4 text-white font-semibold">{entry.totalXP?.toLocaleString() || 0}</td>
                   <td className="px-6 py-4">
-                    <span className="text-orange-400 font-semibold">🔥 {entry.streak}</span>
+                    <span className="text-orange-400 font-semibold">🔥 {entry.streak || 0}</span>
                   </td>
                   <td className="px-6 py-4">
                     <span className="text-yellow-400 font-semibold">★ {entry.badges?.length || 0}</span>

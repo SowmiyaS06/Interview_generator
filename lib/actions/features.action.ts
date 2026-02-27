@@ -257,16 +257,63 @@ export async function updateStreak() {
 
 export async function getLeaderboard(limit: number = 50) {
   try {
-    const snapshot = await db
-      .collection("user_gamification")
-      .orderBy("totalXP", "desc")
-      .limit(limit)
-      .get();
+    console.log('Fetching all users and their gamification data...');
+    
+    // Get all users from users collection
+    const usersSnapshot = await db.collection("users").limit(limit).get();
+    console.log('Total users found:', usersSnapshot.size);
+    
+    // Fetch gamification data for each user
+    const leaderboardPromises = usersSnapshot.docs.map(async (userDoc) => {
+      const userData = userDoc.data();
+      const userId = userDoc.id;
+      const userName = userData?.name || `User ${userId?.slice(0, 8) || 'Unknown'}`;
+      
+      // Try to get gamification data
+      let gamificationData: any = {
+        level: 1,
+        totalXP: 0,
+        currentStreak: 0,
+        badges: [],
+      };
+      
+      try {
+        const gamifDoc = await db.collection("user_gamification").doc(userId).get();
+        if (gamifDoc.exists) {
+          const data = gamifDoc.data();
+          gamificationData = {
+            level: data?.level || 1,
+            totalXP: data?.totalXP || 0,
+            currentStreak: data?.currentStreak || 0,
+            badges: data?.badges || [],
+          };
+        }
+      } catch (err) {
+        console.error(`Error fetching gamification for user ${userId}:`, err);
+      }
+      
+      return {
+        userName,
+        userId,
+        level: gamificationData.level,
+        totalXP: gamificationData.totalXP,
+        streak: gamificationData.currentStreak,
+        badges: gamificationData.badges,
+      };
+    });
 
-    const leaderboard = snapshot.docs.map((doc, index) => ({
+    let leaderboard = await Promise.all(leaderboardPromises);
+    
+    // Sort by totalXP descending
+    leaderboard.sort((a, b) => b.totalXP - a.totalXP);
+    
+    // Add ranks
+    leaderboard = leaderboard.map((entry, index) => ({
       rank: index + 1,
-      ...doc.data(),
+      ...entry,
     }));
+    
+    console.log('Final leaderboard with', leaderboard.length, 'users');
 
     return { success: true, leaderboard };
   } catch (error) {

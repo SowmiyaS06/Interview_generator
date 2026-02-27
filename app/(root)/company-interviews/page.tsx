@@ -7,12 +7,14 @@ import {
   getCompanyProfile,
   recordCompanyInterview,
   getUserCompanyInterviews,
+  deleteCompanyProfile,
 } from "@/lib/actions/company.action";
 
 export default function CompanyInterviewsPage() {
   const [companies, setCompanies] = useState<any[]>([]);
   const [showCreateCompany, setShowCreateCompany] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
   const [showAddInterview, setShowAddInterview] = useState(false);
@@ -40,10 +42,14 @@ export default function CompanyInterviewsPage() {
       setLoading(true);
       setError(null);
       const result = await getUserCompanyInterviews();
+      console.log("Companies fetched:", result); // Debug log
       if (result.success) {
         setCompanies(result.interviews || []);
       } else {
-        setCompanies([]); // No companies yet - normal for new users
+        setCompanies([]);
+        if (result.error && result.error !== "Unauthorized") {
+          setError(result.error);
+        }
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to load your company interviews";
@@ -83,7 +89,28 @@ export default function CompanyInterviewsPage() {
       console.error("Error creating company:", err);
     }
   };
+  const handleDeleteCompany = async (companyId: string, companyName: string) => {
+    if (deleteConfirm !== companyId) {
+      setDeleteConfirm(companyId);
+      return;
+    }
 
+    try {
+      setError(null);
+      const result = await deleteCompanyProfile(companyId);
+      
+      if (result.success) {
+        await fetchCompanyInterviews();
+        setDeleteConfirm(null);
+      } else {
+        setError(result.error || "Failed to delete company");
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to delete company";
+      setError(errorMessage);
+      console.error("Error deleting company:", err);
+    }
+  };
   const handleAddInterview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCompany) return;
@@ -151,7 +178,7 @@ export default function CompanyInterviewsPage() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-[#181c24] to-[#23272f]">
         <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500"></div>
           <p className="text-slate-300 mt-4">Loading your company interviews...</p>
         </div>
       </div>
@@ -169,7 +196,7 @@ export default function CompanyInterviewsPage() {
           </div>
           <button
             onClick={() => setShowCreateCompany(!showCreateCompany)}
-            className="glass-card px-6 py-2 text-base font-semibold text-white bg-blue-700/80 hover:bg-blue-800/90 shadow-lg rounded-lg"
+            className="glass-card px-6 py-2 text-base font-semibold text-white bg-gradient-to-r from-slate-600 to-slate-700 hover:from-slate-700 hover:to-slate-800 shadow-lg rounded-lg transition-all border border-amber-500/30"
           >
             {showCreateCompany ? "Cancel" : "+ New Company"}
           </button>
@@ -206,7 +233,7 @@ export default function CompanyInterviewsPage() {
                     value={newCompany.name}
                     onChange={(e) => setNewCompany({ ...newCompany, name: e.target.value })}
                     placeholder="e.g., Google, Meta, Amazon"
-                    className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2 bg-[#23272f] border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                     required
                   />
                 </div>
@@ -217,7 +244,7 @@ export default function CompanyInterviewsPage() {
                     value={newCompany.industry}
                     onChange={(e) => setNewCompany({ ...newCompany, industry: e.target.value })}
                     placeholder="e.g., Technology, Finance"
-                    className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2 bg-[#23272f] border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                     required
                   />
                 </div>
@@ -230,7 +257,7 @@ export default function CompanyInterviewsPage() {
                     id="company-size"
                     value={newCompany.size}
                     onChange={(e) => setNewCompany({ ...newCompany, size: e.target.value })}
-                    className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2 bg-[#23272f] border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                   >
                     <option value="startup">Startup (1-50)</option>
                     <option value="small">Small (50-500)</option>
@@ -245,7 +272,7 @@ export default function CompanyInterviewsPage() {
                     value={newCompany.website}
                     onChange={(e) => setNewCompany({ ...newCompany, website: e.target.value })}
                     placeholder="https://company.com"
-                    className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2 bg-[#23272f] border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                   />
                 </div>
               </div>
@@ -262,27 +289,112 @@ export default function CompanyInterviewsPage() {
             <p className="text-slate-400">Add your first company to start tracking interviews</p>
           </div>
         ) : (
-          <div className="space-y-8">
+          <div className="space-y-6">
             {companies.map((company) => (
-              <div key={company.id} className="glass-card overflow-hidden">
+              <div key={company.id} className="bg-gradient-to-br from-slate-800/40 to-slate-900/40 border border-slate-700/50 rounded-xl overflow-hidden hover:border-amber-500/50 transition-all duration-300 shadow-xl">
                 {/* Company Header */}
-                <div className="bg-gradient-to-r from-blue-700/80 to-blue-900/80 p-6 text-white rounded-t-xl">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h2 className="text-2xl font-bold drop-shadow">{company.companyName || "Unknown Company"}</h2>
-                      <p className="text-blue-200 mt-1">Style: {company.interviewStyle?.replace("_", " ")}</p>
+                <div className="bg-gradient-to-r from-slate-700/90 via-slate-800/90 to-slate-900/90 p-6 text-white border-b border-amber-500/30">
+                  <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
+                    <div className="flex-1">
+                      <h2 className="text-3xl font-bold drop-shadow-lg mb-2">{company.companyName || "Unknown Company"}</h2>
+                      <div className="flex flex-wrap gap-3 items-center">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/20 rounded-full text-sm backdrop-blur-sm">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                          </svg>
+                          {company.interviews?.length || 0} {company.interviews?.length === 1 ? 'Interview' : 'Interviews'}
+                        </span>
+                        {company.industry && (
+                          <span className="px-3 py-1 bg-white/20 rounded-full text-sm backdrop-blur-sm">
+                            {company.industry}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    {selectedCompany === company.id ? (
-                      <Button size="sm" onClick={() => setSelectedCompany(null)} className="glass-card bg-white/90 text-blue-700 hover:bg-blue-100">Close</Button>
-                    ) : (
-                      <Button size="sm" onClick={() => { setSelectedCompany(company.id); setShowAddInterview(false); }} className="glass-card bg-white/90 text-blue-700 hover:bg-blue-100">View Details</Button>
-                    )}
+                    <div className="flex gap-2">
+                      {deleteConfirm === company.id ? (
+                        <>
+                          <Button 
+                            size="sm" 
+                            onClick={() => handleDeleteCompany(company.id, company.companyName)}
+                            className="bg-red-500 hover:bg-red-600 text-white font-semibold shadow-lg"
+                          >
+                            ✓ Confirm Delete
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            onClick={() => setDeleteConfirm(null)}
+                            className="bg-white/95 hover:bg-white text-slate-800 font-semibold shadow-lg"
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button 
+                            size="sm" 
+                            onClick={() => handleDeleteCompany(company.id, company.companyName)}
+                            className="bg-red-500 hover:bg-red-600 text-white font-semibold shadow-lg"
+                          >
+                            <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Delete
+                          </Button>
+                        </>
+                      )}
+                      {selectedCompany === company.id ? (
+                        <Button size="sm" onClick={() => setSelectedCompany(null)} className="bg-white/95 hover:bg-white text-slate-800 font-semibold shadow-lg">
+                          <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                          </svg>
+                          Close
+                        </Button>
+                      ) : (
+                        <Button size="sm" onClick={() => { setSelectedCompany(company.id); setShowAddInterview(false); }} className="bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-lg">
+                          <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                          View Details
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 {/* Company Details */}
                 {selectedCompany === company.id && (
-                  <div className="p-8 border-t border-slate-800 bg-[#23272f] rounded-b-xl">
+                  <div className="p-8 border-t border-slate-800 bg-[#1a1f28] rounded-b-xl">
+                    {/* Company Information Grid */}
+                    <div className="mb-8">
+                      <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                        <span className="inline-block w-1 h-6 bg-amber-500 rounded"></span>
+                        Company Details
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-slate-700/50 rounded-lg p-5 hover:border-amber-500/50 transition-colors">
+                          <p className="text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">Industry</p>
+                          <p className="text-white font-semibold text-lg">{company.industry || "Not specified"}</p>
+                        </div>
+                        <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-slate-700/50 rounded-lg p-5 hover:border-amber-500/50 transition-colors">
+                          <p className="text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">Company Size</p>
+                          <p className="text-white font-semibold text-lg capitalize">{company.size || "Not specified"}</p>
+                        </div>
+                        <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-slate-700/50 rounded-lg p-5 hover:border-amber-500/50 transition-colors">
+                          <p className="text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">Website</p>
+                          <p className="text-white font-semibold text-lg truncate">
+                            {company.website ? (
+                              <a href={company.website.startsWith('http') ? company.website : `https://${company.website}`} target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:text-amber-300 hover:underline">
+                                {company.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                              </a>
+                            ) : (
+                              <span className="text-slate-500">Not specified</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Add Interview Form */}
                     {showAddInterview && (
                       <form onSubmit={handleAddInterview} className="mb-6 p-4 glass-card">
@@ -296,7 +408,7 @@ export default function CompanyInterviewsPage() {
                                 value={newInterview.position}
                                 onChange={(e) => setNewInterview({ ...newInterview, position: e.target.value })}
                                 placeholder="e.g., Senior Software Engineer"
-                                className="w-full px-4 py-2 bg-[#181c24] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-4 py-2 bg-[#181c24] border border-purple-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                                 required
                               />
                             </div>
@@ -306,7 +418,7 @@ export default function CompanyInterviewsPage() {
                                 id="interview-stage"
                                 value={newInterview.stage}
                                 onChange={(e) => setNewInterview({ ...newInterview, stage: e.target.value })}
-                                className="w-full px-4 py-2 bg-[#181c24] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-4 py-2 bg-[#181c24] border border-purple-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                               >
                                 <option value="phone_screen">Phone Screen</option>
                                 <option value="technical">Technical</option>
@@ -321,7 +433,7 @@ export default function CompanyInterviewsPage() {
                               id="interview-status"
                               value={newInterview.status}
                               onChange={(e) => setNewInterview({ ...newInterview, status: e.target.value })}
-                              className="w-full px-4 py-2 bg-[#181c24] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              className="w-full px-4 py-2 bg-[#181c24] border border-purple-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                             >
                               <option value="scheduled">Scheduled</option>
                               <option value="in_progress">In Progress</option>

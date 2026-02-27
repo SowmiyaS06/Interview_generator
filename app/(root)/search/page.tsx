@@ -62,6 +62,44 @@ export default function SearchPage() {
     }
   };
 
+  const loadSavedSearch = async (savedFilters: any) => {
+    setFilters(savedFilters);
+    // Trigger search with the loaded filters
+    try {
+      setLoading(true);
+      setError(null);
+
+      const result = await searchInterviews({
+        keywords: savedFilters.keyword ? [savedFilters.keyword] : undefined,
+        scoreRange: {
+          min: savedFilters.minScore,
+          max: savedFilters.maxScore,
+        },
+        dateRange: savedFilters.startDate || savedFilters.endDate ? {
+          start: savedFilters.startDate || "",
+          end: savedFilters.endDate || "",
+        } : undefined,
+        roles: savedFilters.roles.length > 0 ? savedFilters.roles : undefined,
+        difficulties: savedFilters.difficulties.length > 0 ? savedFilters.difficulties : undefined,
+        types: savedFilters.types.length > 0 ? savedFilters.types : undefined,
+        tags: savedFilters.tags.length > 0 ? savedFilters.tags : undefined,
+      });
+
+      if (result.success) {
+        setResults(result.interviews || []);
+      } else {
+        setResults([]);
+        setError(result.error || "No results found. Try adjusting your filters.");
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to search interviews";
+      setError(errorMessage);
+      console.error("Error searching:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -87,7 +125,8 @@ export default function SearchPage() {
       if (result.success) {
         setResults(result.interviews || []);
       } else {
-        throw new Error("Search failed. Please try again.");
+        setResults([]);
+        setError(result.error || "No results found. Try adjusting your filters.");
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to search interviews";
@@ -177,11 +216,8 @@ export default function SearchPage() {
                 savedSearches.map((search) => (
                   <div key={search.id} className="flex items-center justify-between p-2 hover:bg-slate-800/40 rounded">
                     <button
-                      onClick={() => {
-                        setFilters(search.filters);
-                        handleSearch(new Event("submit") as any);
-                      }}
-                      className="flex-1 text-left text-sm text-blue-300 hover:text-blue-400"
+                      onClick={() => loadSavedSearch(search.filters)}
+                      className="flex-1 text-left text-sm text-amber-400 hover:text-amber-300"
                     >
                       {search.name}
                     </button>
@@ -204,7 +240,7 @@ export default function SearchPage() {
               <form onSubmit={handleSearch} className="space-y-6">
                 {/* Keyword */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-200 mb-2">
                     Keyword Search
                   </label>
                   <input
@@ -214,13 +250,13 @@ export default function SearchPage() {
                       setFilters({ ...filters, keyword: e.target.value })
                     }
                     placeholder="Search interview transcripts..."
-                    className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2 bg-[#23272f] border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                   />
                 </div>
 
                 {/* Score Range */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-200 mb-2">
                     Score Range
                   </label>
                   <div className="grid grid-cols-2 gap-4">
@@ -237,7 +273,7 @@ export default function SearchPage() {
                           })
                         }
                         placeholder="Min"
-                        className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-2 bg-[#23272f] border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                       />
                     </div>
                     <div>
@@ -253,7 +289,7 @@ export default function SearchPage() {
                           })
                         }
                         placeholder="Max"
-                        className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-2 bg-[#23272f] border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                       />
                     </div>
                   </div>
@@ -261,7 +297,7 @@ export default function SearchPage() {
 
                 {/* Date Range */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-200 mb-2">
                     Date Range
                   </label>
                   <div className="grid grid-cols-2 gap-4">
@@ -279,7 +315,7 @@ export default function SearchPage() {
                         }
                         placeholder="Start date"
                         aria-label="Start date"
-                        className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-2 bg-[#23272f] border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                       />
                     </div>
                     <div>
@@ -294,7 +330,7 @@ export default function SearchPage() {
                             endDate: e.target.value,
                           })
                         }
-                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-2 bg-[#23272f] border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                       />
                     </div>
                   </div>
@@ -302,7 +338,7 @@ export default function SearchPage() {
 
                 {/* Roles */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-200 mb-2">
                     Job Roles
                   </label>
                   <div className="flex flex-wrap gap-2">
@@ -318,8 +354,8 @@ export default function SearchPage() {
                         }
                         className={`px-3 py-1 rounded-full text-sm font-medium transition ${
                           filters.roles.includes(role)
-                            ? "bg-blue-700 text-white shadow"
-                            : "bg-[#23272f] text-blue-200 hover:bg-blue-800/60"
+                            ? "bg-amber-600 text-white shadow"
+                            : "bg-[#23272f] text-amber-200 hover:bg-amber-800/60"
                         }`}
                       >
                         {role}
@@ -330,7 +366,7 @@ export default function SearchPage() {
 
                 {/* Difficulties */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-200 mb-2">
                     Difficulty
                   </label>
                   <div className="flex flex-wrap gap-2">
@@ -349,8 +385,8 @@ export default function SearchPage() {
                         }
                         className={`px-3 py-1 rounded-full text-sm font-medium transition ${
                           filters.difficulties.includes(difficulty)
-                            ? "bg-green-700 text-white shadow"
-                            : "bg-[#23272f] text-green-200 hover:bg-green-800/60"
+                            ? "bg-emerald-600 text-white shadow"
+                            : "bg-[#23272f] text-emerald-200 hover:bg-emerald-800/60"
                         }`}
                       >
                         {difficulty}
@@ -361,7 +397,7 @@ export default function SearchPage() {
 
                 {/* Interview Types */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-200 mb-2">
                     Interview Type
                   </label>
                   <div className="flex flex-wrap gap-2">
@@ -377,8 +413,8 @@ export default function SearchPage() {
                         }
                         className={`px-3 py-1 rounded-full text-sm font-medium transition ${
                           filters.types.includes(type)
-                            ? "bg-purple-700 text-white shadow"
-                            : "bg-[#23272f] text-purple-200 hover:bg-purple-800/60"
+                            ? "bg-slate-600 text-white shadow"
+                            : "bg-[#23272f] text-slate-300 hover:bg-slate-700/60"
                         }`}
                       >
                         {type}
@@ -392,14 +428,14 @@ export default function SearchPage() {
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="flex-1 glass-card bg-blue-700/80 hover:bg-blue-800/90 text-white font-semibold"
+                    className="flex-1 glass-card bg-amber-600 hover:bg-amber-700 text-white font-semibold"
                   >
                     {loading ? "Searching..." : "Search"}
                   </Button>
                   <Button
                     type="button"
                     onClick={() => setShowSavePrompt(true)}
-                    className="flex-1 glass-card bg-green-700/80 hover:bg-green-800/90 text-white font-semibold"
+                    className="flex-1 glass-card bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
                   >
                     Save Search
                   </Button>
@@ -414,18 +450,18 @@ export default function SearchPage() {
                     value={searchName}
                     onChange={(e) => setSearchName(e.target.value)}
                     placeholder="Save this search as..."
-                    className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+                    className="w-full px-4 py-2 bg-[#23272f] border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 mb-2"
                   />
                   <div className="flex gap-2">
                     <Button
                       onClick={handleSaveSearch}
-                      className="flex-1 glass-card bg-green-700/80 hover:bg-green-800/90 text-white"
+                      className="flex-1 glass-card bg-emerald-600 hover:bg-emerald-700 text-white"
                     >
                       Save
                     </Button>
                     <Button
                       onClick={() => setShowSavePrompt(false)}
-                      className="flex-1 glass-card bg-slate-700/80 hover:bg-slate-800/90 text-white"
+                      className="flex-1 glass-card bg-slate-600 hover:bg-slate-700 text-white"
                     >
                       Cancel
                     </Button>
@@ -450,7 +486,7 @@ export default function SearchPage() {
                           <p className="text-sm text-slate-300 mt-1">{result.role} • {result.difficulty}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-blue-300">{result.score || 0}</p>
+                          <p className="text-2xl font-bold text-amber-400">{result.score || 0}</p>
                           <p className="text-xs text-slate-400">{new Date(result.createdAt).toLocaleDateString()}</p>
                         </div>
                       </div>

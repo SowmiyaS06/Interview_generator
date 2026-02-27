@@ -11,7 +11,10 @@ export async function createCompanyProfile(
   logo?: string
 ) {
   const userId = await getCurrentUserId();
+  console.log("createCompanyProfile - userId:", userId);
+  
   if (!userId) {
+    console.error("createCompanyProfile - No userId found (not authenticated)");
     return { success: false, error: "Unauthorized" };
   }
 
@@ -24,13 +27,11 @@ export async function createCompanyProfile(
       size,
       website,
       logo,
-      interviewStyle: "Not provided",
       commonQuestions: [],
       interviewProcess: [],
       culture: {
         values: [],
         teamSize: size,
-        workEnvironment: "Not provided",
       },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -40,14 +41,61 @@ export async function createCompanyProfile(
       Object.entries(companyData).filter(([, value]) => value !== undefined)
     );
 
+    console.log("Saving company data to Firestore:", {
+      companyId,
+      sanitizedData: sanitizedCompanyData,
+    });
+
     await db.collection("company_profiles").doc(companyId).set(sanitizedCompanyData);
 
+    console.log("Company saved successfully:", companyId);
     return { success: true, companyId };
   } catch (error) {
     console.error("Error creating company profile:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Failed to create company profile",
+    };
+  }
+}
+
+export async function deleteCompanyProfile(companyId: string) {
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    // Verify the company belongs to the user
+    const companyDoc = await db.collection("company_profiles").doc(companyId).get();
+    
+    if (!companyDoc.exists) {
+      return { success: false, error: "Company not found" };
+    }
+
+    const companyData = companyDoc.data();
+    if (companyData?.userId !== userId) {
+      return { success: false, error: "Unauthorized to delete this company" };
+    }
+
+    // Delete the company profile
+    await db.collection("company_profiles").doc(companyId).delete();
+
+    // Also delete all related interviews
+    const interviewsSnapshot = await db
+      .collection("company_interviews")
+      .where("companyId", "==", companyId)
+      .get();
+
+    const deletePromises = interviewsSnapshot.docs.map((doc) => doc.ref.delete());
+    await Promise.all(deletePromises);
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting company profile:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to delete company",
     };
   }
 }
@@ -128,7 +176,10 @@ export async function recordCompanyInterview(
 
 export async function getUserCompanyInterviews() {
   const userId = await getCurrentUserId();
+  console.log("getUserCompanyInterviews - userId:", userId);
+  
   if (!userId) {
+    console.error("getUserCompanyInterviews - No userId found (not authenticated)");
     return { success: false, error: "Unauthorized" };
   }
 
@@ -137,11 +188,14 @@ export async function getUserCompanyInterviews() {
       .collection("company_profiles")
       .where("userId", "==", userId)
       .get();
+    
+    console.log("getUserCompanyInterviews - companiesSnapshot.size:", companiesSnapshot.size);
 
+    // Fetch company interviews (removed orderBy to avoid composite index requirement)
+    // Sorting is done client-side below
     const interviewSnapshot = await db
       .collection("company_interviews")
       .where("userId", "==", userId)
-      .orderBy("createdAt", "desc")
       .get();
 
     const companies = companiesSnapshot.docs.map((doc: FirebaseFirestore.QueryDocumentSnapshot) => ({
@@ -219,6 +273,11 @@ export async function getUserCompanyInterviews() {
       if (!bLatest) return -1;
       return new Date(bLatest).getTime() - new Date(aLatest).getTime();
       });
+
+    console.log("Retrieved companies from Firestore:", {
+      count: interviews.length,
+      companies: interviews,
+    });
 
     return { success: true, interviews };
   } catch (error) {

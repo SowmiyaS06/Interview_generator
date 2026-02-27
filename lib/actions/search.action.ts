@@ -23,25 +23,41 @@ export async function searchInterviews(filters: {
       .collection("interviews")
       .where("userId", "==", userId) as any;
 
-    if (filters.roles && filters.roles.length > 0) {
-      query = query.where("role", "in", filters.roles);
+    // Apply filters only if they exist (removed orderBy to avoid composite index)
+    // Sorting will be done client-side
+    const snapshot = await query.get();
+    
+    if (snapshot.empty) {
+      return { success: true, interviews: [] };
     }
-
-    if (filters.difficulties && filters.difficulties.length > 0) {
-      query = query.where("difficulty", "in", filters.difficulties);
-    }
-
-    if (filters.types && filters.types.length > 0) {
-      query = query.where("type", "in", filters.types);
-    }
-
-    const snapshot = await query.orderBy("createdAt", "desc").get();
 
     let interviews: Array<{ id: string; createdAt?: string } & Record<string, any>> =
       snapshot.docs.map((doc: FirebaseFirestore.QueryDocumentSnapshot) => ({
         id: doc.id,
         ...doc.data(),
       }));
+
+    // Client-side filtering by roles
+    if (filters.roles && filters.roles.length > 0) {
+      interviews = interviews.filter(i => filters.roles!.includes(i.role));
+    }
+
+    // Client-side filtering by difficulties
+    if (filters.difficulties && filters.difficulties.length > 0) {
+      interviews = interviews.filter(i => filters.difficulties!.includes(i.difficulty));
+    }
+
+    // Client-side filtering by types
+    if (filters.types && filters.types.length > 0) {
+      interviews = interviews.filter(i => filters.types!.includes(i.type));
+    }
+
+    // Sort by createdAt client-side
+    interviews.sort((a, b) => {
+      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return dateB - dateA;
+    });
 
     // Filter by score range
     if (filters.scoreRange) {
