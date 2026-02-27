@@ -363,12 +363,20 @@ const isInterviewEndConfirmation = (text?: string) => {
     "sure",
     "okay",
     "ok",
+    "thank you",
+    "thanks",
+    "thank you so much",
+    "thanks a lot",
+    "appreciate it",
     "let's end",
     "lets end",
     "end the interview",
     "you can end",
     "we can end",
     "finish the interview",
+    "goodbye",
+    "bye",
+    "have a good day",
   ].some((phrase) => normalized.includes(phrase));
 };
 
@@ -753,7 +761,8 @@ const Agent = ({
           type === "interview" &&
           isInterviewClosingPhrase(message.transcript)
         ) {
-          endInterviewCallAndContinue();
+          awaitingInterviewEndConfirmationRef.current = true;
+          debugLog("Interview closing phrase detected. Awaiting user's closing confirmation.");
         }
 
         if (
@@ -846,8 +855,8 @@ const Agent = ({
       const lastHeardAt = lastUserTranscriptAtRef.current;
       const idleMs = lastHeardAt ? Date.now() - lastHeardAt : Date.now() - startedAt;
 
-      if (idleMs > 20000) {
-        toast.error("We cannot hear you. Please check your microphone permissions and input device.");
+      if (idleMs > 30000) {
+        toast.error("No audio detected for 30 seconds. Please check your microphone and speak clearly.");
         clearInterval(interval);
       }
     }, 5000);
