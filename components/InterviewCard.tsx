@@ -1,6 +1,7 @@
 import dayjs from "dayjs";
 import Link from "next/link";
 import Image from "next/image";
+import { memo } from "react";
 
 import { Button } from "./ui/button";
 import DisplayTechIcons from "./DisplayTechIcons";
@@ -85,6 +86,7 @@ const InterviewCard = ({
                 width={22}
                 height={22}
                 alt="calendar"
+                className="w-auto h-auto"
               />
               <p>{formattedDate}</p>
             </div>
@@ -122,4 +124,4 @@ const InterviewCard = ({
   );
 };
 
-export default InterviewCard;
+export default memo(InterviewCard);

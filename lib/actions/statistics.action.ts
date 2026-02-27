@@ -23,6 +23,7 @@ export interface UserStatistics {
     date: string;
     score: number;
     role: string;
+    interviewId: string;
   }>;
   roleBreakdown: Array<{
     role: string;
@@ -178,6 +179,7 @@ export async function getUserStatistics(userId?: string): Promise<UserStatistics
           date: feedback.createdAt,
           score: feedback.totalScore,
           role: interviewData?.role || "Unknown",
+          interviewId: feedback.interviewId,
         };
       })
     );

@@ -82,20 +82,34 @@ const QuickInterviewSetup = ({ user }: { user: User }) => {
 
     setIsLoading(true);
     try {
-      const response = await fetch("/api/vapi/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          role,
-          level,
-          type,
-          techstack: techstackList,
-          amount,
-          difficulty,
-          templateId: templateId !== "custom" ? templateId : undefined,
-          userId: user.id,
-        }),
-      });
+      const requestBody = {
+        role,
+        level,
+        type,
+        techstack: techstackList,
+        amount,
+        difficulty,
+        templateId: templateId !== "custom" ? templateId : undefined,
+        userId: user.id,
+      };
+
+      const postGenerate = () =>
+        fetch("/api/vapi/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        });
+
+      let response: Response;
+      try {
+        response = await postGenerate();
+      } catch {
+        response = await postGenerate();
+      }
+
+      if (!response.ok && response.status >= 500) {
+        response = await postGenerate();
+      }
 
       const result = (await response.json()) as {
         success: boolean;

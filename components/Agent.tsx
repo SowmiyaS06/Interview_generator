@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getVapi } from "@/lib/vapi.sdk";
 import { interviewer } from "@/constants";
-import { createFeedback } from "@/lib/actions/general.action";
+import { completeInterviewSession } from "@/lib/actions/general.action";
 
 enum CallStatus {
   INACTIVE = "INACTIVE",
@@ -300,6 +300,24 @@ const isMeetingEndedEjection = (message?: string) => {
   );
 };
 
+const isTransportDisconnected = (message?: string) => {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+
+  return (
+    lower.includes("recv transport changed to disconnected") ||
+    lower.includes("transport changed to disconnected") ||
+    lower.includes("transport disconnected") ||
+    lower.includes("ice connection state") && lower.includes("disconnected")
+  );
+};
+
+const isKnownBenignCallEndMessage = (message?: string) => {
+  if (!message) return false;
+
+  return isMeetingEndedEjection(message) || isTransportDisconnected(message);
+};
+
 const isGenerateClosingPhrase = (text?: string) => {
   if (!text) return false;
 
@@ -357,26 +375,17 @@ const isInterviewEndConfirmation = (text?: string) => {
   const normalized = text.toLowerCase().trim();
 
   return [
-    "yes",
-    "yes please",
-    "yes, please",
-    "sure",
-    "okay",
-    "ok",
-    "thank you",
-    "thanks",
-    "thank you so much",
-    "thanks a lot",
-    "appreciate it",
     "let's end",
     "lets end",
     "end the interview",
-    "you can end",
+    "you can end the interview",
+    "yes end the interview",
+    "yes, end the interview",
+    "please end the interview",
     "we can end",
     "finish the interview",
-    "goodbye",
-    "bye",
-    "have a good day",
+    "conclude the interview",
+    "you may conclude the interview",
   ].some((phrase) => normalized.includes(phrase));
 };
 
@@ -449,11 +458,14 @@ const Agent = ({
   const router = useRouter();
   const vapi = useMemo(() => getVapi(), []);
   const [callStatus, setCallStatus] = useState<CallStatus>(CallStatus.INACTIVE);
-  const [messages, setMessages] = useState<SavedMessage[]>([]);
+  const [lastMessage, setLastMessage] = useState("");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isGeneratingInterview, setIsGeneratingInterview] = useState(false);
   const [generatedPayload, setGeneratedPayload] = useState<GenerateInterviewPayload | null>(null);
   const generatedPayloadRef = useRef<GenerateInterviewPayload | null>(null);
+  const generationRequestIdRef = useRef<string | null>(null);
+  const generateHandledForSessionRef = useRef(false);
+  const transcriptMessagesRef = useRef<SavedMessage[]>([]);
   const micStreamRef = useRef<MediaStream | null>(null);
   const lastUserTranscriptAtRef = useRef<number | null>(null);
   const callStatusRef = useRef<CallStatus>(CallStatus.INACTIVE);
@@ -462,9 +474,12 @@ const Agent = ({
   const endingGenerateCallRef = useRef(false);
   const endingInterviewCallRef = useRef(false);
   const awaitingInterviewEndConfirmationRef = useRef(false);
+  const interviewEndPromptedAtRef = useRef<number | null>(null);
   const lastEjectionToastAtRef = useRef(0);
   const hasUserSpokenRef = useRef(false);
-  const lastMessage = messages[messages.length - 1]?.content;
+  const activeSessionTypeRef = useRef<AgentProps["type"]>(type);
+  const createdInterviewIdRef = useRef<string | null>(null);
+  const createInterviewInvokedRef = useRef(false);
 
   const hasCompleteInterviewPayload = useCallback((payload: GenerateInterviewPayload | null) => {
     if (!payload) return false;
@@ -525,6 +540,29 @@ const Agent = ({
     return true;
   }, [type]);
 
+  const handleTransportDisconnectGracefully = useCallback((message?: string) => {
+    if (!isTransportDisconnected(message)) return false;
+
+    const callIsEndingByIntent = endingGenerateCallRef.current || endingInterviewCallRef.current;
+    const isNonActiveState = callStatusRef.current !== CallStatus.ACTIVE;
+
+    if (callIsEndingByIntent || isNonActiveState) {
+      suppressFinishRef.current = true;
+
+      if (type === "generate" && autoStopTriggeredRef.current) {
+        setCallStatus(CallStatus.FINISHED);
+        return true;
+      }
+
+      resetCallState();
+      return true;
+    }
+
+    toast.error("Call disconnected unexpectedly. Please reconnect and continue.");
+    resetCallState();
+    return true;
+  }, [type]);
+
   const saveGeneratedInterview = useCallback(async () => {
     const payloadToSave = generatedPayloadRef.current ?? generatedPayload;
 
@@ -542,15 +580,31 @@ const Agent = ({
       hasQuestions: !!payloadToSave.questions,
     });
 
-    const response = await fetch("/api/vapi/generate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ...payloadToSave,
-      }),
-    });
+    const requestBody = {
+      ...payloadToSave,
+      userId,
+      generationRequestId: generationRequestIdRef.current,
+    };
+
+    const postGenerate = () =>
+      fetch("/api/vapi/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+    let response: Response;
+    try {
+      response = await postGenerate();
+    } catch {
+      response = await postGenerate();
+    }
+
+    if (!response.ok && response.status >= 500) {
+      response = await postGenerate();
+    }
 
     if (!response.ok) {
       const body = (await response.json().catch(() => ({}))) as { error?: string };
@@ -563,10 +617,26 @@ const Agent = ({
     };
     debugLog("Generate API response", body);
     return body.success ? (body.interviewId ?? null) : null;
-  }, [generatedPayload]);
+  }, [generatedPayload, userId]);
 
-  const runInterviewGeneration = useCallback(async () => {
+  const createInterview = useCallback(async () => {
     if (isGeneratingInterview) return;
+
+    if (activeSessionTypeRef.current !== "generate") {
+      return;
+    }
+
+    if (createInterviewInvokedRef.current) {
+      debugLog("Create interview already invoked for this session");
+      return;
+    }
+
+    if (createdInterviewIdRef.current) {
+      debugLog("Interview already created for this session", {
+        interviewId: createdInterviewIdRef.current,
+      });
+      return;
+    }
 
     const payloadReady = generatedPayloadRef.current ?? generatedPayload;
 
@@ -576,6 +646,7 @@ const Agent = ({
       return;
     }
 
+    createInterviewInvokedRef.current = true;
     setIsGeneratingInterview(true);
 
     try {
@@ -584,6 +655,7 @@ const Agent = ({
 
       const generatedInterviewId = await saveGeneratedInterview();
       if (generatedInterviewId) {
+        createdInterviewIdRef.current = generatedInterviewId;
         toast.success("Interview generated and saved.");
         router.push("/");
         router.refresh();
@@ -595,27 +667,75 @@ const Agent = ({
       const details = getErrorDetails(error);
       console.log("Failed to persist generated interview:", details);
       toast.error(`Interview save failed: ${details.message}`);
+      createInterviewInvokedRef.current = false;
     } finally {
       setIsGeneratingInterview(false);
       resetCallState();
     }
   }, [generatedPayload, hasCompleteInterviewPayload, isGeneratingInterview, router, saveGeneratedInterview]);
 
+  const completeInterview = useCallback(
+    async (targetInterviewId: string, messages: SavedMessage[]) => {
+      const { success, feedbackId: id, error } = await completeInterviewSession({
+        interviewId: targetInterviewId,
+        transcript: messages,
+        feedbackId,
+      });
+
+      if (success && id) {
+        router.push(`/interview/${targetInterviewId}/feedback`);
+        return;
+      }
+
+      console.log("Error completing interview", error ?? "Unknown error");
+      router.push("/");
+    },
+    [feedbackId, router]
+  );
+
   useEffect(() => {
     const onUnhandledRejection = (event: PromiseRejectionEvent) => {
-      const message = extractErrorMessage(event.reason);
+      const extractedMessage = extractErrorMessage(event.reason);
+      const fallbackMessage = String(event.reason ?? "");
+      const message = extractedMessage || fallbackMessage;
+
+      if (isKnownBenignCallEndMessage(message)) {
+        if (handleEjectionGracefully(message) || handleTransportDisconnectGracefully(message)) {
+          event.preventDefault();
+          return;
+        }
+      }
 
       if (handleEjectionGracefully(message)) {
+        event.preventDefault();
+        return;
+      }
+
+      if (handleTransportDisconnectGracefully(message)) {
         event.preventDefault();
       }
     };
 
     const onWindowError = (event: ErrorEvent) => {
-      const message =
+      const extractedMessage =
         event.message ||
         extractErrorMessage(event.error);
+      const fallbackMessage = String(event.error ?? event.message ?? "");
+      const message = extractedMessage || fallbackMessage;
+
+      if (isKnownBenignCallEndMessage(message)) {
+        if (handleEjectionGracefully(message) || handleTransportDisconnectGracefully(message)) {
+          event.preventDefault();
+          return;
+        }
+      }
 
       if (handleEjectionGracefully(message)) {
+        event.preventDefault();
+        return;
+      }
+
+      if (handleTransportDisconnectGracefully(message)) {
         event.preventDefault();
       }
     };
@@ -627,7 +747,7 @@ const Agent = ({
       window.removeEventListener("unhandledrejection", onUnhandledRejection);
       window.removeEventListener("error", onWindowError, true);
     };
-  }, [handleEjectionGracefully]);
+  }, [handleEjectionGracefully, handleTransportDisconnectGracefully]);
 
   useEffect(() => {
     if (!vapi) return;
@@ -692,12 +812,28 @@ const Agent = ({
     };
 
     const onCallStart = () => {
+      if (callStatusRef.current === CallStatus.ACTIVE) {
+        debugLog("Ignoring duplicate call-start event", { type });
+        return;
+      }
+
       suppressFinishRef.current = false;
       autoStopTriggeredRef.current = false;
       endingGenerateCallRef.current = false;
       endingInterviewCallRef.current = false;
+      generateHandledForSessionRef.current = false;
+      createInterviewInvokedRef.current = false;
+      generationRequestIdRef.current =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       awaitingInterviewEndConfirmationRef.current = false;
+      interviewEndPromptedAtRef.current = null;
       hasUserSpokenRef.current = false;
+      activeSessionTypeRef.current = type;
+      createdInterviewIdRef.current = null;
+      transcriptMessagesRef.current = [];
+      setLastMessage("");
       generatedPayloadRef.current = null;
       setGeneratedPayload(null);
       setCallStatus(CallStatus.ACTIVE);
@@ -741,11 +877,15 @@ const Agent = ({
         }
 
         if (message.transcriptType !== "final") {
+          if (message.transcript?.trim()) {
+            setLastMessage(message.transcript);
+          }
           return;
         }
 
         const newMessage = { role: message.role, content: message.transcript };
-        setMessages((prev) => [...prev, newMessage]);
+        transcriptMessagesRef.current.push(newMessage);
+        setLastMessage(newMessage.content);
 
         if (
           message.role === "user" &&
@@ -762,6 +902,7 @@ const Agent = ({
           isInterviewClosingPhrase(message.transcript)
         ) {
           awaitingInterviewEndConfirmationRef.current = true;
+          interviewEndPromptedAtRef.current = Date.now();
           debugLog("Interview closing phrase detected. Awaiting user's closing confirmation.");
         }
 
@@ -771,16 +912,21 @@ const Agent = ({
           isInterviewClosurePrompt(message.transcript)
         ) {
           awaitingInterviewEndConfirmationRef.current = true;
+          interviewEndPromptedAtRef.current = Date.now();
           debugLog("Awaiting user confirmation to end interview");
         }
 
         if (
           message.role === "user" &&
           type === "interview" &&
-          (awaitingInterviewEndConfirmationRef.current || isInterviewEndConfirmation(message.transcript)) &&
+          awaitingInterviewEndConfirmationRef.current &&
+          (interviewEndPromptedAtRef.current
+            ? Date.now() - interviewEndPromptedAtRef.current <= 45000
+            : false) &&
           isInterviewEndConfirmation(message.transcript)
         ) {
           awaitingInterviewEndConfirmationRef.current = false;
+          interviewEndPromptedAtRef.current = null;
           endInterviewCallAndContinue();
         }
       }
@@ -817,16 +963,30 @@ const Agent = ({
 
     const onError = (error: unknown) => {
       const details = getErrorDetails(error);
+
+      const fallbackMessage = String(error ?? "");
+      const message = details.message || fallbackMessage;
+
+      if (isKnownBenignCallEndMessage(message)) {
+        if (handleEjectionGracefully(message) || handleTransportDisconnectGracefully(message)) {
+          return;
+        }
+      }
+
+      if (handleEjectionGracefully(message)) {
+        return;
+      }
+
+      if (handleTransportDisconnectGracefully(message)) {
+        return;
+      }
+
       console.log("Vapi error details:", {
         raw: error,
         ...details,
       });
 
-      if (handleEjectionGracefully(details.message)) {
-        return;
-      }
-
-      toast.error(`Vapi error (${details.code}): ${details.message}`);
+      toast.error(`Vapi error (${details.code}): ${message}`);
       resetCallState();
     };
 
@@ -845,7 +1005,7 @@ const Agent = ({
       vapi.off("speech-end", onSpeechEnd);
       vapi.off("error", onError);
     };
-  }, [handleEjectionGracefully, hasCompleteInterviewPayload, runInterviewGeneration, type, vapi]);
+  }, [handleEjectionGracefully, handleTransportDisconnectGracefully, hasCompleteInterviewPayload, createInterview, type, vapi]);
 
   useEffect(() => {
     if (callStatus !== CallStatus.ACTIVE) return;
@@ -865,41 +1025,27 @@ const Agent = ({
   }, [callStatus]);
 
   useEffect(() => {
-    const handleGenerateFeedback = async (messages: SavedMessage[]) => {
-      console.log("handleGenerateFeedback");
-
-      const { success, feedbackId: id } = await createFeedback({
-        interviewId: interviewId!,
-        transcript: messages,
-        feedbackId,
-      });
-
-      if (success && id) {
-        router.push(`/interview/${interviewId}/feedback`);
-      } else {
-        console.log("Error saving feedback");
-        router.push("/");
-      }
-    };
-
     if (callStatus === CallStatus.FINISHED) {
-      if (type === "generate") {
-        runInterviewGeneration();
+      if (activeSessionTypeRef.current === "generate") {
+        if (generateHandledForSessionRef.current) {
+          return;
+        }
+        generateHandledForSessionRef.current = true;
+        createInterview();
       } else {
-        handleGenerateFeedback(messages);
+        if (!interviewId) {
+          router.push("/");
+          return;
+        }
+        completeInterview(interviewId, transcriptMessagesRef.current);
       }
     }
   }, [
-    messages,
     callStatus,
-    feedbackId,
     interviewId,
+    createInterview,
+    completeInterview,
     router,
-    type,
-    userId,
-    generatedPayload,
-    isGeneratingInterview,
-    runInterviewGeneration,
   ]);
 
   const handleCall = async () => {
@@ -912,6 +1058,15 @@ const Agent = ({
     }
 
     setCallStatus(CallStatus.CONNECTING);
+
+    if (type === "generate") {
+      createInterviewInvokedRef.current = false;
+      createdInterviewIdRef.current = null;
+      generationRequestIdRef.current =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
 
     const connectingTimeout = setTimeout(() => {
       if (callStatusRef.current === CallStatus.CONNECTING) {
@@ -936,7 +1091,15 @@ const Agent = ({
         throw new Error("Your browser does not support microphone access.");
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          noiseSuppression: true,
+          echoCancellation: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 48000,
+        },
+      });
       micStreamRef.current?.getTracks().forEach((track) => track.stop());
       micStreamRef.current = stream;
 
@@ -978,6 +1141,9 @@ const Agent = ({
             username: userName,
             userid: userId,
             userId,
+            language: process.env.NEXT_PUBLIC_VAPI_TRANSCRIBER_LANGUAGE?.trim() || "en-IN",
+            locale: process.env.NEXT_PUBLIC_VAPI_TRANSCRIBER_LANGUAGE?.trim() || "en-IN",
+            accent: "indian-english",
           },
         });
       } else {

@@ -100,7 +100,13 @@ const Feedback = async ({ params }: RouteParams) => {
 
           {/* Date */}
           <div className="flex flex-row gap-2">
-            <Image src="/calendar.svg" width={22} height={22} alt="calendar" />
+            <Image
+              src="/calendar.svg"
+              width={22}
+              height={22}
+              alt="calendar"
+              className="w-auto h-auto"
+            />
             <p>
               {feedback.createdAt
                 ? dayjs(feedback.createdAt).format("MMM D, YYYY h:mm A")
@@ -112,7 +118,7 @@ const Feedback = async ({ params }: RouteParams) => {
 
       {/* Overall Score Points Breakdown */}
       {feedback.overallScorePoints && (
-        <div className="bg-gradient-to-r from-primary-200/10 to-primary-200/5 rounded-xl p-6 border border-primary-200/20">
+        <div className="bg-linear-to-r from-primary-200/10 to-primary-200/5 rounded-xl p-6 border border-primary-200/20">
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             <span className="text-2xl">📊</span> Overall Score Breakdown (Out of 100)
           </h2>
@@ -192,6 +198,9 @@ const Feedback = async ({ params }: RouteParams) => {
         <ExportButtons interview={interview} feedback={feedback} />
         <ShareFeedbackControls interviewId={id} shareId={feedback.shareId} />
         <CalendarExport title={`${interview.role} interview follow-up`} />
+        <Button asChild variant="outline">
+          <Link href={`/learning/${id}`}>Improve Based on Feedback</Link>
+        </Button>
       </div>
 
       {/* Interview Breakdown */}
@@ -252,6 +261,51 @@ const Feedback = async ({ params }: RouteParams) => {
           ))}
         </ul>
       </div>
+
+      {interview.learningModules && interview.learningModules.length > 0 && (
+        <div className="flex flex-col gap-4">
+          <h3 className="flex items-center gap-2">
+            <span className="text-xl">📚</span> Learning Recommendations
+          </h3>
+
+          <div className="grid gap-4">
+            {interview.learningModules.map((module, moduleIndex) => (
+              <div key={`${module.topic}-${moduleIndex}`} className="bg-dark-200/30 rounded-lg p-4">
+                <p className="font-bold text-lg mb-3">{module.topic}</p>
+
+                {module.resources.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {module.resources.map((resource, resourceIndex) => (
+                      <a
+                        key={`${resource.url}-${resourceIndex}`}
+                        href={resource.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-dark-200 border border-dark-300 rounded-lg overflow-hidden hover:border-primary-200/50 transition-colors"
+                      >
+                        <Image
+                          src={resource.thumbnail}
+                          alt={resource.title}
+                          width={320}
+                          height={180}
+                          className="w-full h-auto object-cover"
+                        />
+                        <div className="p-3">
+                          <p className="text-sm line-clamp-2">{resource.title}</p>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400">
+                    Learning resources are currently unavailable for this topic.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3">
         <h3>Transcript</h3>

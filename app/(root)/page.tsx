@@ -9,7 +9,7 @@ import { getCurrentUser } from "@/lib/actions/auth.action";
 import {
   getInterviewsByUserId,
   getLatestInterviews,
-  getFeedbackByInterviewId,
+  getFeedbackMapByInterviewIds,
 } from "@/lib/actions/general.action";
 
 async function Home() {
@@ -24,33 +24,16 @@ async function Home() {
   const safeUserInterviews = userInterviews ?? [];
   const safeAllInterviews = allInterview ?? [];
 
-  // Fetch feedbacks for user interviews
-  const userFeedbacksArray = await Promise.all(
-    safeUserInterviews.map((interview) =>
-      getFeedbackByInterviewId({
-        interviewId: interview.id,
-        userId: user.id,
-      }).then((feedback) => ({ id: interview.id, feedback }))
-    )
-  );
-
-  // Fetch feedbacks for all interviews
-  const allFeedbacksArray = await Promise.all(
-    safeAllInterviews.map((interview) =>
-      getFeedbackByInterviewId({
-        interviewId: interview.id,
-        userId: user.id,
-      }).then((feedback) => ({ id: interview.id, feedback }))
-    )
-  );
-
-  // Create maps for easy lookup
-  const userFeedbacksMap = new Map(
-    userFeedbacksArray.map((item) => [item.id, item.feedback])
-  );
-  const allFeedbacksMap = new Map(
-    allFeedbacksArray.map((item) => [item.id, item.feedback])
-  );
+  const [userFeedbacksMap, allFeedbacksMap] = await Promise.all([
+    getFeedbackMapByInterviewIds({
+      interviewIds: safeUserInterviews.map((interview) => interview.id),
+      userId: user.id,
+    }),
+    getFeedbackMapByInterviewIds({
+      interviewIds: safeAllInterviews.map((interview) => interview.id),
+      userId: user.id,
+    }),
+  ]);
 
   return (
     <>
@@ -71,7 +54,8 @@ async function Home() {
           alt="robo-dude"
           width={400}
           height={400}
-          className="max-sm:hidden"
+          loading="eager"
+          className="max-sm:hidden w-auto h-auto"
         />
       </section>
 

@@ -3,6 +3,19 @@
 import { db } from "@/firebase/admin";
 import { getCurrentUserId } from "./auth.action";
 
+const IN_QUERY_LIMIT = 10;
+
+const chunkArray = <T>(items: T[], size: number): T[][] => {
+  if (!items.length) return [];
+
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+};
+
 export async function calculatePerformanceMetrics(
   feedbackId: string,
   transcript: Array<{ role: string; content: string }>
@@ -133,23 +146,44 @@ export async function getLatestPerformanceMetrics() {
   }
 
   try {
-    const metricsSnapshot = await db
-      .collection("performance_metrics")
-      .where("userId", "==", userId)
-      .get();
+    let metricsSnapshot;
+    try {
+      metricsSnapshot = await db
+        .collection("performance_metrics")
+        .where("userId", "==", userId)
+        .orderBy("createdAt", "desc")
+        .limit(1)
+        .get();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+      if (!message.includes("requires an index") && !message.includes("failed_precondition")) {
+        throw error;
+      }
+
+      const fallbackSnapshot = await db
+        .collection("performance_metrics")
+        .where("userId", "==", userId)
+        .get();
+
+      const sortedDocs = fallbackSnapshot.docs.sort((a, b) => {
+        const aTime = new Date(String(a.data().createdAt ?? 0)).getTime();
+        const bTime = new Date(String(b.data().createdAt ?? 0)).getTime();
+        return bTime - aTime;
+      });
+
+      metricsSnapshot = {
+        empty: sortedDocs.length === 0,
+        docs: sortedDocs.slice(0, 1),
+      } as unknown as FirebaseFirestore.QuerySnapshot;
+    }
 
     if (metricsSnapshot.empty) {
       return { success: false, error: "No metrics available" };
     }
 
-    const latestMetricsDoc = metricsSnapshot.docs
-      .sort((a, b) => {
-        const aTime = new Date(String(a.data().createdAt ?? 0)).getTime();
-        const bTime = new Date(String(b.data().createdAt ?? 0)).getTime();
-        return bTime - aTime;
-      })[0];
-
-    const metrics = latestMetricsDoc.data();
+    const metrics = metricsSnapshot.docs[0].data();
     return { success: true, metrics };
   } catch (error) {
     console.error("Error fetching latest performance metrics:", error);
@@ -164,32 +198,72 @@ export async function getPerformanceTrend(limit: number = 10) {
   }
 
   try {
-    const feedbacksSnapshot = await db
-      .collection("feedback")
-      .where("userId", "==", userId)
-      .get();
+    let feedbacksSnapshot;
+    try {
+      feedbacksSnapshot = await db
+        .collection("feedback")
+        .where("userId", "==", userId)
+        .orderBy("createdAt", "desc")
+        .limit(limit)
+        .get();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
 
-    const sortedFeedbackDocs = feedbacksSnapshot.docs
-      .sort((a, b) => {
-        const aTime = new Date(String(a.data().createdAt ?? 0)).getTime();
-        const bTime = new Date(String(b.data().createdAt ?? 0)).getTime();
-        return bTime - aTime;
-      })
-      .slice(0, limit);
+      if (!message.includes("requires an index") && !message.includes("failed_precondition")) {
+        throw error;
+      }
 
-    const trends = await Promise.all(
-      sortedFeedbackDocs.map(async (feedbackDoc) => {
-        const metricsSnapshot = await db
-          .collection("performance_metrics")
-          .where("feedbackId", "==", feedbackDoc.id)
-          .get();
+      const fallbackSnapshot = await db
+        .collection("feedback")
+        .where("userId", "==", userId)
+        .get();
 
-        if (metricsSnapshot.empty) {
-          return null;
+      const sortedDocs = fallbackSnapshot.docs
+        .sort((a, b) => {
+          const aTime = new Date(String(a.data().createdAt ?? 0)).getTime();
+          const bTime = new Date(String(b.data().createdAt ?? 0)).getTime();
+          return bTime - aTime;
+        })
+        .slice(0, limit);
+
+      feedbacksSnapshot = {
+        docs: sortedDocs,
+      } as unknown as FirebaseFirestore.QuerySnapshot;
+    }
+
+    const feedbackDocs = feedbacksSnapshot.docs;
+    if (!feedbackDocs.length) {
+      return { success: true, trends: [] };
+    }
+
+    const feedbackIdChunks = chunkArray(
+      feedbackDocs.map((doc) => doc.id),
+      IN_QUERY_LIMIT
+    );
+
+    const metricsSnapshots = await Promise.all(
+      feedbackIdChunks.map((chunk) =>
+        db.collection("performance_metrics").where("feedbackId", "in", chunk).get()
+      )
+    );
+
+    const metricsMap = new Map<string, Record<string, any>>();
+    metricsSnapshots.forEach((snapshot) => {
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data() as Record<string, any>;
+        const feedbackId = String(data.feedbackId || "");
+        if (feedbackId && !metricsMap.has(feedbackId)) {
+          metricsMap.set(feedbackId, data);
         }
+      });
+    });
 
-        const metrics = metricsSnapshot.docs[0].data();
-        const feedback = feedbackDoc.data();
+    const trends = feedbackDocs
+      .map((feedbackDoc) => {
+        const feedback = feedbackDoc.data() as Record<string, any>;
+        const metrics = metricsMap.get(feedbackDoc.id);
+        if (!metrics) return null;
 
         return {
           date: feedback.createdAt,
@@ -197,10 +271,10 @@ export async function getPerformanceTrend(limit: number = 10) {
           confidenceScore: metrics.confidenceScore,
           clarityScore: metrics.clarityScore,
           coherenceScore: metrics.coherenceScore,
-          fillerWordsCount: metrics.fillerWords.count,
+          fillerWordsCount: metrics.fillerWords?.count ?? 0,
         };
       })
-    );
+      .filter(Boolean);
 
     return {
       success: true,

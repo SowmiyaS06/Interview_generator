@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import InterviewCard from "./InterviewCard";
 import InterviewSearchFilter from "./InterviewSearchFilter";
 
@@ -20,6 +20,10 @@ export default function InterviewsList({
   showAttendedTag = false,
 }: InterviewsListProps) {
   const [filteredInterviews, setFilteredInterviews] = useState<Interview[]>(interviews);
+
+  useEffect(() => {
+    setFilteredInterviews(interviews);
+  }, [interviews]);
 
   if (interviews.length === 0) {
     return <p>No interviews found</p>;

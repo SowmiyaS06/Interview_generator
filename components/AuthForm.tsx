@@ -246,7 +246,13 @@ const AuthForm = ({ type }: { type: FormType }) => {
       <div className="card-border lg:min-w-141.5">
         <div className="flex flex-col gap-6 card py-14 px-10">
           <div className="flex flex-row gap-2 justify-center">
-            <Image src="/logo.svg" alt="logo" height={32} width={38} />
+            <Image
+              src="/logo.svg"
+              alt="logo"
+              height={32}
+              width={38}
+              className="w-auto h-auto"
+            />
             <h2 className="text-primary-100">PrepWise</h2>
           </div>
           <h3>{isSignIn ? "Welcome back" : "Create your account"}</h3>
@@ -266,7 +272,13 @@ const AuthForm = ({ type }: { type: FormType }) => {
     <div className="card-border lg:min-w-141.5">
       <div className="flex flex-col gap-6 card py-14 px-10">
         <div className="flex flex-row gap-2 justify-center">
-          <Image src="/logo.svg" alt="logo" height={32} width={38} />
+          <Image
+            src="/logo.svg"
+            alt="logo"
+            height={32}
+            width={38}
+            className="w-auto h-auto"
+          />
           <h2 className="text-primary-100">PrepWise</h2>
         </div>
 

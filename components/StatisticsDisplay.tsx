@@ -1,13 +1,17 @@
 "use client";
 
 import { TrendingUp, TrendingDown, Minus, Award, Target, BarChart3 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import type { UserStatistics } from "@/lib/actions/statistics.action";
+import { Progress } from "@/components/ui/progress";
 
 interface StatisticsDisplayProps {
   stats: UserStatistics;
 }
 
 export default function StatisticsDisplay({ stats }: StatisticsDisplayProps) {
+  const router = useRouter();
+
   if (stats.totalFeedbacks === 0) {
     return (
       <div className="card p-8 text-center">
@@ -127,16 +131,7 @@ export default function StatisticsDisplay({ stats }: StatisticsDisplayProps) {
                   </span>
                 </div>
                 <div className="w-full bg-dark-200 rounded-full h-2">
-                  <div
-                    className={`h-2 rounded-full transition-all ${
-                      score >= 80
-                        ? "bg-green-500"
-                        : score >= 60
-                        ? "bg-yellow-500"
-                        : "bg-red-500"
-                    }`}
-                    style={{ width: `${score}%` }}
-                  />
+                  <Progress value={score} className="h-2" />
                 </div>
               </div>
             );
@@ -199,18 +194,7 @@ export default function StatisticsDisplay({ stats }: StatisticsDisplayProps) {
                   </p>
                 </div>
                 <div className="flex items-center gap-4">
-                  <div className="w-32 bg-dark-200 rounded-full h-2">
-                    <div
-                      className={`h-2 rounded-full ${
-                        role.averageScore >= 80
-                          ? "bg-green-500"
-                          : role.averageScore >= 60
-                          ? "bg-yellow-500"
-                          : "bg-red-500"
-                      }`}
-                      style={{ width: `${role.averageScore}%` }}
-                    />
-                  </div>
+                  <Progress value={role.averageScore} className="w-32 h-2" />
                   <span className={`font-bold w-16 text-right ${getScoreColor(role.averageScore)}`}>
                     {role.averageScore.toFixed(2)}
                   </span>
@@ -227,7 +211,19 @@ export default function StatisticsDisplay({ stats }: StatisticsDisplayProps) {
           <h3 className="text-lg font-semibold mb-4">Recent Performance</h3>
           <div className="space-y-2">
             {[...stats.recentPerformance].reverse().map((performance, index) => (
-              <div key={index} className="flex items-center justify-between py-2 border-b border-dark-300 last:border-0">
+              <div
+                key={`${performance.interviewId}-${performance.date}-${index}`}
+                className="flex items-center justify-between py-2 border-b border-dark-300 last:border-0 cursor-pointer hover:bg-dark-200/40 transition-colors rounded-md px-2"
+                onClick={() => router.push(`/interview/${performance.interviewId}/feedback`)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    router.push(`/interview/${performance.interviewId}/feedback`);
+                  }
+                }}
+              >
                 <div>
                   <p className="font-medium">{performance.role}</p>
                   <p className="text-xs text-muted-foreground">

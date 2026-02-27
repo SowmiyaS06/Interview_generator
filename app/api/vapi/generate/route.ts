@@ -6,6 +6,7 @@ import { getRandomInterviewCover } from "@/lib/utils";
 import { checkInterviewRateLimit } from "@/lib/rate-limiter";
 import { trackApiCost } from "@/lib/cost-tracking";
 import { getCachedQuestions, cacheQuestions } from "@/lib/question-cache";
+import { generateChatCompletionWithFailover } from "@/lib/ai-client";
 
 const SERVER_VAPI_DEBUG = process.env.VAPI_DEBUG === "true";
 
@@ -130,60 +131,21 @@ Return the questions formatted like this:
 `;
 
 const generateQuestionsWithOpenRouter = async (prompt: string) => {
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-  if (!apiKey) {
+  const hasOpenRouter =
+    !!process.env.OPENROUTER_API_KEY?.trim() || !!process.env.OPENROUTER_API_KEYS?.trim();
+  const hasOpenAi =
+    !!process.env.OPENAI_API_KEY?.trim() || !!process.env.OPENAI_API_KEYS?.trim();
+
+  if (!hasOpenRouter && !hasOpenAi) {
     throw new Error("AI service not configured");
   }
 
-  const model = process.env.OPENROUTER_MODEL?.trim() || DEFAULT_MODEL;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000";
-
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": appUrl,
-      "X-Title": "PrepWise",
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content: prompt }],
-      temperature: DEFAULT_TEMPERATURE,
-    }),
+  const result = await generateChatCompletionWithFailover({
+    messages: [{ role: "user", content: prompt }],
+    temperature: DEFAULT_TEMPERATURE,
   });
 
-  if (!response.ok) {
-    const errorBody = (await response.json().catch(() => ({}))) as {
-      error?: { message?: string; code?: number | string };
-    };
-    
-    serverDebugLog("OpenRouter error", { status: response.status, error: errorBody });
-
-    // User-friendly error messages
-    if (response.status === 401) {
-      throw new Error("Authentication failed with AI service");
-    }
-    if (response.status === 402) {
-      throw new Error("AI service requires additional credits");
-    }
-    if (response.status === 429) {
-      throw new Error("Too many requests. Please try again in a moment");
-    }
-
-    throw new Error("Failed to generate interview questions");
-  }
-
-  const body = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-
-  const content = body.choices?.[0]?.message?.content?.trim();
-  if (!content) {
-    throw new Error("AI service returned empty response");
-  }
-
-  return content;
+  return result.content;
 };
 
 type GeneratePayload = {
@@ -203,6 +165,7 @@ type GeneratePayload = {
   userId?: string;
   uid?: string;
   questions?: string[] | string;
+  generationRequestId?: string;
 };
 
 const normalizeTechstack = (techstack: GeneratePayload["techstack"]) => {
@@ -305,6 +268,10 @@ export async function POST(request: Request) {
   const level = pickString([payload.level, payload.experienceLevel, payload.seniority], "Mid");
   const difficulty = pickString([payload.difficulty], "Medium");
   const templateId = typeof payload.templateId === "string" ? payload.templateId.trim() : undefined;
+  const generationRequestId =
+    typeof payload.generationRequestId === "string"
+      ? payload.generationRequestId.trim()
+      : "";
   let amount = Number(payload.amount ?? DEFAULT_QUESTIONS);
   const userId = await getRequestUserId(payload);
   const techStackList = normalizeTechstack(payload.techstack ?? payload.techStack);
@@ -488,7 +455,20 @@ export async function POST(request: Request) {
       interview.templateId = templateId;
     }
 
-    const interviewRef = await db.collection("interviews").add(interview);
+    let interviewRef: FirebaseFirestore.DocumentReference;
+
+    if (generationRequestId) {
+      const deterministicId = `gen_${userId}_${generationRequestId}`;
+      interviewRef = db.collection("interviews").doc(deterministicId);
+      const existingDoc = await interviewRef.get();
+
+      if (!existingDoc.exists) {
+        interview.generationRequestId = generationRequestId;
+        await interviewRef.set(interview);
+      }
+    } else {
+      interviewRef = await db.collection("interviews").add(interview);
+    }
 
     serverDebugLog("Interview saved", {
       interviewId: interviewRef.id,
@@ -523,12 +503,7 @@ export async function POST(request: Request) {
       {
         success: true,
         interviewId: interviewRef.id,
-        role,
-        level,
-        type,
         amount: actualAmount,
-        techstack: techStackList,
-        userId,
         usedFallback,
       },
       { status: 200 }

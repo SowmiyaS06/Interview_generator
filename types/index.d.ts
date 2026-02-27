@@ -45,6 +45,17 @@ interface Interview {
   amount?: number;
   difficulty?: "Easy" | "Medium" | "Hard";
   templateId?: string;
+  weakTopics?: string[];
+  learningModules?: Array<{
+    topic: string;
+    resources: Array<{
+      title: string;
+      url: string;
+      thumbnail: string;
+    }>;
+  }>;
+  completedLearningResources?: string[];
+  learningModulesUpdatedAt?: string;
 }
 
 interface CreateFeedbackParams {
@@ -58,11 +69,6 @@ interface User {
   email: string;
   id: string;
   resumeUrl?: string;
-  resumeFileName?: string;
-  preferredRole?: string;
-  experienceLevel?: "Fresher" | "Junior" | "Mid" | "Senior";
-  primaryTechStack?: string;
-  bio?: string;
   profileUrl?: string;
 }
 

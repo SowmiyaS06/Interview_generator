@@ -37,7 +37,13 @@ const SharedFeedbackPage = async ({ params }: { params: Promise<{ shareId: strin
           </div>
 
           <div className="flex flex-row gap-2">
-            <Image src="/calendar.svg" width={22} height={22} alt="calendar" />
+            <Image
+              src="/calendar.svg"
+              width={22}
+              height={22}
+              alt="calendar"
+              className="w-auto h-auto"
+            />
             <p>
               {feedback.createdAt
                 ? dayjs(feedback.createdAt).format("MMM D, YYYY h:mm A")

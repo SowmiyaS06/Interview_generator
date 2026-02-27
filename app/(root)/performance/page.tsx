@@ -1,13 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import StatisticsDisplay from "@/components/StatisticsDisplay";
+import dynamic from "next/dynamic";
+import { Progress } from "@/components/ui/progress";
 import {
   getLatestPerformanceMetrics,
   getPerformanceTrend,
-  calculatePerformanceMetrics,
 } from "@/lib/actions/performance-metrics.action";
 import { getUserStatistics } from "@/lib/actions/statistics.action";
+
+const StatisticsDisplay = dynamic(() => import("@/components/StatisticsDisplay"), {
+  loading: () => <div className="h-40 rounded-lg bg-slate-800/30 animate-pulse" />,
+});
 
 export default function PerformancePage() {
   const [metrics, setMetrics] = useState<any>(null);
@@ -94,7 +98,7 @@ export default function PerformancePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-[#181c24] to-[#23272f]">
+      <div className="flex items-center justify-center min-h-screen bg-linear-to-br from-[#181c24] to-[#23272f]">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
           <p className="text-slate-300 mt-4">Loading your performance data...</p>
@@ -104,7 +108,7 @@ export default function PerformancePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#181c24] to-[#23272f] p-6">
+    <div className="min-h-screen bg-linear-to-br from-[#181c24] to-[#23272f] p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-10">
@@ -264,30 +268,24 @@ export default function PerformancePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {trends.map((trend) => (
-                        <tr key={trend.interviewNumber} className="border-b border-slate-800 hover:bg-slate-800/30">
+                      {trends.map((trend, index) => (
+                        <tr key={`${trend.interviewNumber}-${trend.date}-${index}`} className="border-b border-slate-800 hover:bg-slate-800/30">
                           <td className="p-2 text-slate-100">{trend.interviewNumber}</td>
                           <td className="p-2">
                             <div className="flex items-center gap-2">
-                              <div className="w-20 bg-slate-700 rounded h-2">
-                                <div className="bg-blue-400 h-2 rounded" style={{ width: `${trend.confidenceScore}%` }} />
-                              </div>
+                              <Progress className="w-20" value={trend.confidenceScore} />
                               <span className="text-slate-100">{trend.confidenceScore}</span>
                             </div>
                           </td>
                           <td className="p-2">
                             <div className="flex items-center gap-2">
-                              <div className="w-20 bg-slate-700 rounded h-2">
-                                <div className="bg-green-400 h-2 rounded" style={{ width: `${trend.clarityScore}%` }} />
-                              </div>
+                              <Progress className="w-20" value={trend.clarityScore} />
                               <span className="text-slate-100">{trend.clarityScore}</span>
                             </div>
                           </td>
                           <td className="p-2">
                             <div className="flex items-center gap-2">
-                              <div className="w-20 bg-slate-700 rounded h-2">
-                                <div className="bg-yellow-400 h-2 rounded" style={{ width: `${trend.coherenceScore}%` }} />
-                              </div>
+                              <Progress className="w-20" value={trend.coherenceScore} />
                               <span className="text-slate-100">{trend.coherenceScore}</span>
                             </div>
                           </td>

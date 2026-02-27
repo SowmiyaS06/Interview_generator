@@ -4,9 +4,65 @@ import { db } from "@/firebase/admin";
 import { feedbackSchema } from "@/constants";
 import { getCurrentUserId } from "./auth.action";
 import { calculatePerformanceMetrics } from "./performance-metrics.action";
+import { generateChatCompletionWithFailover } from "@/lib/ai-client";
+import { buildLearningModules, extractWeakTopics } from "@/lib/learning-recommendations";
+
+const IN_QUERY_LIMIT = 10;
+const FEEDBACK_AI_TIMEOUT_MS = 18000;
+
+const chunkArray = <T>(items: T[], size: number): T[][] => {
+  if (!items.length) return [];
+
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+};
+
+type FeedbackPromptContext = {
+  role?: string;
+  level?: string;
+  type?: string;
+  difficulty?: string;
+  questions?: string[];
+  questionAnswerSummary?: string;
+  overallScoreHint?: number;
+  perQuestionScoresHint?: Array<{ question: string; score: number }>;
+};
+
+const formatQuestionAnswerSummary = (
+  questions: string[] | undefined,
+  transcript: Array<{ role: string; content: string }>
+) => {
+  const questionList = Array.isArray(questions) ? questions.filter(Boolean) : [];
+  const userAnswers = transcript
+    .filter((entry) => entry.role === "user")
+    .map((entry) => entry.content?.trim())
+    .filter(Boolean);
+
+  if (!questionList.length && !userAnswers.length) {
+    return "Not available";
+  }
+
+  if (!questionList.length) {
+    return userAnswers
+      .map((answer, index) => `Q${index + 1}: [Question unavailable]\nA${index + 1}: ${answer}`)
+      .join("\n\n");
+  }
+
+  return questionList
+    .map((question, index) => {
+      const answer = userAnswers[index] || "[No answer captured]";
+      return `Q${index + 1}: ${question}\nA${index + 1}: ${answer}`;
+    })
+    .join("\n\n");
+};
 
 const generateFeedbackWithOpenRouter = async (
-  formattedTranscript: string
+  formattedTranscript: string,
+  interviewContext?: FeedbackPromptContext
 ): Promise<{
   totalScore: number;
   categoryScores: Array<{ name: string; score: number; comment: string; keyHighlights?: string[] }>;
@@ -20,12 +76,14 @@ const generateFeedbackWithOpenRouter = async (
   };
   criticalHighlights: Array<{ type: "strength" | "improvement" | "critical"; text: string; priority: "high" | "medium" | "low" }>;
 }> => {
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("Missing OPENROUTER_API_KEY");
-  }
+  const hasOpenRouter =
+    !!process.env.OPENROUTER_API_KEY?.trim() || !!process.env.OPENROUTER_API_KEYS?.trim();
+  const hasOpenAi =
+    !!process.env.OPENAI_API_KEY?.trim() || !!process.env.OPENAI_API_KEYS?.trim();
 
-  const model = process.env.OPENROUTER_MODEL?.trim() || "openai/gpt-4o-mini";
+  if (!hasOpenRouter && !hasOpenAi) {
+    throw new Error("Missing AI provider key");
+  }
 
   const systemPrompt = `You are an elite-level technical interview assessor with extensive experience at top-tier companies (FAANG/MAANG). Your evaluations are known for being:
 - BRUTALLY HONEST - Never inflate scores to be polite or encouraging
@@ -50,8 +108,54 @@ Return ONLY valid JSON with no markdown formatting.`;
 
 BE RUTHLESSLY HONEST. Your job is to give TRUE feedback, not to make the candidate feel good.
 
+INTERVIEW CONTEXT:
+- Role: ${interviewContext?.role || "Unknown"}
+- Level: ${interviewContext?.level || "Unknown"}
+- Type: ${interviewContext?.type || "Unknown"}
+- Difficulty: ${interviewContext?.difficulty || "Unknown"}
+- Questions Asked: ${(interviewContext?.questions || []).length || 0}
+- Overall Score (if available): ${
+    typeof interviewContext?.overallScoreHint === "number"
+      ? interviewContext.overallScoreHint.toFixed(2)
+      : "Not available"
+  }
+- Per-Question Scores (if available): ${
+    interviewContext?.perQuestionScoresHint?.length
+      ? interviewContext.perQuestionScoresHint
+          .map((entry, index) => `Q${index + 1} ${entry.score.toFixed(2)}`)
+          .join(", ")
+      : "Not available"
+  }
+
+QUESTION + ANSWER MAPPING:
+${interviewContext?.questionAnswerSummary || "Not available"}
+
 TRANSCRIPT:
 ${formattedTranscript}
+
+ANTI-TEMPLATE REQUIREMENTS:
+- Do NOT use generic filler feedback. Make this report unique to the provided transcript.
+- Include at least 2 short direct quotes from the candidate transcript in your category comments/final assessment.
+- Avoid repeating the same sentence structure across categories.
+- If evidence is weak, say exactly what is missing instead of using vague suggestions.
+- Do not use generic phrases like "You did well overall" or "good job" without concrete evidence.
+- Mention specific technical mistakes and explicitly name concepts the candidate missed.
+- Provide role-specific, practical suggestions (tools, concepts, patterns) based on ${
+    interviewContext?.role || "the target role"
+  }.
+
+REQUIRED FEEDBACK SECTIONS TO COVER IN OUTPUT CONTENT:
+1) Strengths
+2) Areas for Improvement
+3) Technical Gaps Identified
+4) Suggested Topics to Revise
+5) Final Recommendation
+
+MAPPING TO JSON FIELDS:
+- strengths: include section (1)
+- areasForImprovement: include section (2) and (4) with actionable bullets
+- criticalHighlights: include section (3) entries (type="critical" or "improvement")
+- finalAssessment: include section (5) and a concise summary of role-readiness
 
 TRUTHFULNESS CHECKLIST (Apply before scoring each category):
 □ Did the candidate actually demonstrate this skill in the transcript?
@@ -188,37 +292,23 @@ Return your evaluation as a JSON object with this EXACT structure:
 
 Return ONLY the JSON object, no markdown code blocks or extra text.`;
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000",
-      "X-Title": "PrepWise",
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.3,
-    }),
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FEEDBACK_AI_TIMEOUT_MS);
+
+  const result = await generateChatCompletionWithFailover({
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.45,
+    signal: controller.signal,
+  }).finally(() => {
+    clearTimeout(timeout);
   });
 
-  const body = (await response.json().catch(() => ({}))) as {
-    error?: { message?: string };
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-
-  if (!response.ok) {
-    const providerMessage = body.error?.message || "OpenRouter request failed";
-    throw new Error(providerMessage);
-  }
-
-  const content = body.choices?.[0]?.message?.content?.trim();
+  const content = result.content?.trim();
   if (!content) {
-    throw new Error("OpenRouter returned empty content");
+    throw new Error("AI provider returned empty content");
   }
 
   // Parse the JSON response
@@ -236,7 +326,13 @@ const roundTwo = (value: number) => Math.round(value * 100) / 100;
 const clampScore = (value: number) => Math.max(0, Math.min(100, value));
 
 const generateFallbackFeedback = (
-  transcript: Array<{ role: string; content: string }>
+  transcript: Array<{ role: string; content: string }>,
+  interviewContext?: {
+    role?: string;
+    level?: string;
+    type?: string;
+    difficulty?: string;
+  }
 ): {
   totalScore: number;
   categoryScores: Array<{ name: string; score: number; comment: string; keyHighlights?: string[] }>;
@@ -252,6 +348,11 @@ const generateFallbackFeedback = (
 } => {
   const userResponses = transcript.filter((entry) => entry.role === "user");
   const combinedUserText = userResponses.map((entry) => entry.content).join(" ").trim();
+  const evidenceQuotes = userResponses
+    .map((entry) => entry.content.trim())
+    .filter((entry) => entry.length > 20)
+    .slice(0, 3)
+    .map((entry) => `"${entry.slice(0, 120)}${entry.length > 120 ? "..." : ""}"`);
   const wordCount = combinedUserText ? combinedUserText.split(/\s+/).filter(Boolean).length : 0;
   const avgWordsPerResponse = userResponses.length ? wordCount / userResponses.length : 0;
 
@@ -299,20 +400,34 @@ const generateFallbackFeedback = (
     structureMentions >= 4
       ? "Used some structured reasoning language to explain decisions."
       : "Showed moments of reasoning that can be expanded into clearer frameworks.",
+    evidenceQuotes[0]
+      ? `Evidence from transcript: ${evidenceQuotes[0]}`
+      : "Transcript evidence is limited; provide fuller examples in future responses.",
   ];
 
   const baseImprovements = [
     "Provide deeper, concrete examples for each answer instead of broad high-level statements.",
     "Reduce filler words and tighten phrasing to improve clarity and confidence.",
     "Use a consistent problem-solving structure and explicitly call out trade-offs and edge cases.",
+    evidenceQuotes[1]
+      ? `Expand on points like ${evidenceQuotes[1]} with measurable outcomes and technical depth.`
+      : "Add specific project details (constraints, decisions, outcomes) to avoid generic responses.",
   ];
+
+  const contextLabel = [
+    interviewContext?.role,
+    interviewContext?.level,
+    interviewContext?.type,
+  ]
+    .filter(Boolean)
+    .join(" • ");
 
   const finalAssessment =
     weightedTotal >= 80
-      ? "Performance is strong with clear technical substance and structured communication. Responses demonstrate good judgment and practical depth. The interview trend aligns with a hiring recommendation, while still leaving room for sharper examples in a few areas."
+      ? `${contextLabel ? `[${contextLabel}] ` : ""}Performance is strong with clear technical substance and structured communication. Responses demonstrate good judgment and practical depth. The interview trend aligns with a hiring recommendation, while still leaving room for sharper examples in a few areas.`
       : weightedTotal >= 65
-        ? "Performance is mixed with visible strengths and clear development gaps. Some answers show useful technical awareness, but consistency and depth are not yet at a strong-hire bar. A lean-no-hire or borderline outcome is likely unless response quality becomes more specific and structured."
-        : "Performance is currently below hiring expectations. Responses are too generic or insufficiently detailed to demonstrate consistent capability. Major improvement is needed in technical depth, structured reasoning, and communication precision before this profile is interview-ready.";
+        ? `${contextLabel ? `[${contextLabel}] ` : ""}Performance is mixed with visible strengths and clear development gaps. Some answers show useful technical awareness, but consistency and depth are not yet at a strong-hire bar. A lean-no-hire or borderline outcome is likely unless response quality becomes more specific and structured.`
+        : `${contextLabel ? `[${contextLabel}] ` : ""}Performance is currently below hiring expectations. Responses are too generic or insufficiently detailed to demonstrate consistent capability. Major improvement is needed in technical depth, structured reasoning, and communication precision before this profile is interview-ready.`;
 
   const categoryScores = [
     {
@@ -325,6 +440,7 @@ const generateFallbackFeedback = (
       keyHighlights: [
         `Average response length: ${roundTwo(avgWordsPerResponse)} words`,
         `Filler-word rate: ${roundTwo(fillerRate)}%`,
+        evidenceQuotes[0] || "No strong communication quote captured.",
       ],
     },
     {
@@ -334,7 +450,10 @@ const generateFallbackFeedback = (
         technicalScore >= 70
           ? "Technical discussion included relevant concepts and mostly solid framing."
           : "Technical depth appears limited, with insufficient concrete detail in several responses.",
-      keyHighlights: [`Technical concept mentions detected: ${technicalMentions}`],
+      keyHighlights: [
+        `Technical concept mentions detected: ${technicalMentions}`,
+        evidenceQuotes[1] || "No clear technical quote captured.",
+      ],
     },
     {
       name: "Problem Solving",
@@ -343,7 +462,10 @@ const generateFallbackFeedback = (
         problemSolvingScore >= 70
           ? "Problem-solving approach shows signs of method and structured thinking."
           : "Problem-solving flow is inconsistent and needs clearer decomposition and trade-off analysis.",
-      keyHighlights: [`Structured-reasoning cues detected: ${structureMentions}`],
+      keyHighlights: [
+        `Structured-reasoning cues detected: ${structureMentions}`,
+        evidenceQuotes[2] || "No clear problem-solving quote captured.",
+      ],
     },
     {
       name: "Cultural Fit",
@@ -448,11 +570,53 @@ export async function createFeedback(params: CreateFeedbackParams) {
 
     let object;
 
+    const questionAnswerSummary = formatQuestionAnswerSummary(interview.questions, transcript);
+    let overallScoreHint: number | undefined;
+    let perQuestionScoresHint: Array<{ question: string; score: number }> | undefined;
+
+    if (feedbackId) {
+      const existingFeedback = await db.collection("feedback").doc(feedbackId).get();
+      if (existingFeedback.exists) {
+        const existingData = existingFeedback.data() as {
+          totalScore?: number;
+          questionScores?: Array<{ question?: string; score?: number }>;
+        };
+
+        if (typeof existingData.totalScore === "number") {
+          overallScoreHint = existingData.totalScore;
+        }
+
+        if (Array.isArray(existingData.questionScores)) {
+          perQuestionScoresHint = existingData.questionScores
+            .filter((entry) => typeof entry?.score === "number")
+            .map((entry) => ({
+              question: String(entry.question || "Question"),
+              score: Number(entry.score),
+            }));
+        }
+      }
+    }
+
     try {
-      object = await generateFeedbackWithOpenRouter(formattedTranscript);
+      object = await generateFeedbackWithOpenRouter(formattedTranscript, {
+        role: interview.role,
+        level: interview.level,
+        type: interview.type,
+        difficulty: interview.difficulty,
+        questions: Array.isArray(interview.questions) ? interview.questions : [],
+        questionAnswerSummary,
+        overallScoreHint,
+        perQuestionScoresHint,
+      });
     } catch (error) {
-      console.error("AI feedback generation failed. Falling back to deterministic scoring:", error);
-      object = generateFallbackFeedback(transcript);
+      const message = error instanceof Error ? error.message : "AI provider unavailable";
+      console.warn(`AI feedback unavailable, using deterministic scoring. (${message})`);
+      object = generateFallbackFeedback(transcript, {
+        role: interview.role,
+        level: interview.level,
+        type: interview.type,
+        difficulty: interview.difficulty,
+      });
     }
 
     const feedback = {
@@ -479,6 +643,30 @@ export async function createFeedback(params: CreateFeedbackParams) {
 
     await feedbackRef.set(feedback);
 
+    try {
+      const weakTopics = extractWeakTopics({
+        categoryScores: feedback.categoryScores,
+        areasForImprovement: feedback.areasForImprovement,
+        criticalHighlights: feedback.criticalHighlights,
+      });
+
+      const learningModules = await buildLearningModules(weakTopics);
+
+      await db
+        .collection("interviews")
+        .doc(interviewId)
+        .set(
+          {
+            weakTopics,
+            learningModules,
+            learningModulesUpdatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+    } catch (learningError) {
+      console.error("Error generating learning recommendations:", learningError);
+    }
+
     calculatePerformanceMetrics(feedbackRef.id, transcript).catch((error) => {
       console.error("Error calculating performance metrics:", error);
     });
@@ -488,6 +676,39 @@ export async function createFeedback(params: CreateFeedbackParams) {
     console.error("Error saving feedback:", error);
     return { success: false };
   }
+}
+
+export async function completeInterviewSession(params: CreateFeedbackParams) {
+  const { interviewId, transcript, feedbackId } = params;
+
+  const feedbackResult = await createFeedback({
+    interviewId,
+    transcript,
+    feedbackId,
+  });
+
+  if (!feedbackResult.success) {
+    return feedbackResult;
+  }
+
+  try {
+    await db
+      .collection("interviews")
+      .doc(interviewId)
+      .set(
+        {
+          updatedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          status: "completed",
+        },
+        { merge: true }
+      );
+  } catch (error) {
+    console.error("Error updating interview completion state:", error);
+    return { success: false, error: "Failed to update interview" };
+  }
+
+  return feedbackResult;
 }
 
 export async function getInterviewById(id: string): Promise<Interview | null> {
@@ -518,15 +739,50 @@ export async function getFeedbackByInterviewId(
   return { id: feedbackDoc.id, ...feedbackDoc.data() } as Feedback;
 }
 
+export async function getFeedbackMapByInterviewIds(params: {
+  interviewIds: string[];
+  userId: string;
+}): Promise<Map<string, Feedback>> {
+  const { interviewIds, userId } = params;
+
+  if (!interviewIds.length) return new Map();
+
+  const uniqueIds = Array.from(new Set(interviewIds));
+  const chunks = chunkArray(uniqueIds, IN_QUERY_LIMIT);
+
+  const snapshots = await Promise.all(
+    chunks.map((chunk) =>
+      db
+        .collection("feedback")
+        .where("userId", "==", userId)
+        .where("interviewId", "in", chunk)
+        .get()
+    )
+  );
+
+  const feedbackMap = new Map<string, Feedback>();
+  for (const snapshot of snapshots) {
+    snapshot.docs.forEach((doc) => {
+      const feedback = { id: doc.id, ...doc.data() } as Feedback;
+      if (!feedbackMap.has(feedback.interviewId)) {
+        feedbackMap.set(feedback.interviewId, feedback);
+      }
+    });
+  }
+
+  return feedbackMap;
+}
+
 export async function getLatestInterviews(
   params: GetLatestInterviewsParams
 ): Promise<Interview[] | null> {
   const { userId, limit = 20 } = params;
 
+  const bufferMultiplier = 8;
   const interviews = await db
     .collection("interviews")
     .orderBy("createdAt", "desc")
-    .limit(limit * 5)
+    .limit(limit * bufferMultiplier)
     .get();
 
   return interviews.docs
@@ -541,21 +797,42 @@ export async function getLatestInterviews(
 export async function getInterviewsByUserId(
   userId: string
 ): Promise<Interview[] | null> {
-  const interviews = await db
-    .collection("interviews")
-    .where("userId", "==", userId)
-    .get();
+  try {
+    const interviews = await db
+      .collection("interviews")
+      .where("userId", "==", userId)
+      .orderBy("createdAt", "desc")
+      .get();
 
-  return interviews.docs
-    .map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }) as Interview)
-    .sort((a, b) => {
-      const aTime = new Date(String(a.createdAt ?? 0)).getTime();
-      const bTime = new Date(String(b.createdAt ?? 0)).getTime();
-      return bTime - aTime;
-    }) as Interview[];
+    return interviews.docs
+      .map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }) as Interview) as Interview[];
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+    if (message.includes("requires an index") || message.includes("failed_precondition")) {
+      const fallbackInterviews = await db
+        .collection("interviews")
+        .where("userId", "==", userId)
+        .get();
+
+      return fallbackInterviews.docs
+        .map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }) as Interview)
+        .sort((a, b) => {
+          const aTime = new Date(String(a.createdAt ?? 0)).getTime();
+          const bTime = new Date(String(b.createdAt ?? 0)).getTime();
+          return bTime - aTime;
+        }) as Interview[];
+    }
+
+    throw error;
+  }
 }
 
 

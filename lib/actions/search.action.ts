@@ -3,6 +3,19 @@
 import { db } from "@/firebase/admin";
 import { getCurrentUserId } from "./auth.action";
 
+const IN_QUERY_LIMIT = 10;
+
+const chunkArray = <T>(items: T[], size: number): T[][] => {
+  if (!items.length) return [];
+
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+};
+
 export async function searchInterviews(filters: {
   keywords?: string[];
   scoreRange?: { min: number; max: number };
@@ -19,136 +32,130 @@ export async function searchInterviews(filters: {
   }
 
   try {
-    console.log("Search filters received:", filters);
-    
-    let query = db
-      .collection("interviews")
-      .where("userId", "==", userId) as any;
+    let query = db.collection("interviews").where("userId", "==", userId) as any;
 
-    const snapshot = await query.get();
-    
-    console.log("Total interviews found:", snapshot.size);
-    
-    if (snapshot.empty) {
-      return { success: true, interviews: [] };
+    if (filters.difficulties && filters.difficulties.length > 0) {
+      query = query.where("difficulty", "in", filters.difficulties);
     }
 
+    if (filters.types && filters.types.length > 0) {
+      query = query.where("type", "in", filters.types);
+    }
+
+    let snapshot;
+    try {
+      snapshot = await query.orderBy("createdAt", "desc").get();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+      if (!message.includes("requires an index") && !message.includes("failed_precondition")) {
+        throw error;
+      }
+
+      snapshot = await query.get();
+    }
     let interviews: Array<{ id: string; createdAt?: string } & Record<string, any>> =
       snapshot.docs.map((doc: FirebaseFirestore.QueryDocumentSnapshot) => ({
         id: doc.id,
         ...doc.data(),
       }));
 
-    console.log("Initial interviews:", interviews.length);
-
-    // Client-side filtering by roles
-    if (filters.roles && filters.roles.length > 0) {
-      interviews = interviews.filter(i => filters.roles!.includes(i.role));
-      console.log("After role filter:", interviews.length);
-    }
-
-    // Client-side filtering by difficulties
-    if (filters.difficulties && filters.difficulties.length > 0) {
-      interviews = interviews.filter(i => filters.difficulties!.includes(i.difficulty));
-      console.log("After difficulty filter:", interviews.length);
-    }
-
-    // Client-side filtering by types
-    if (filters.types && filters.types.length > 0) {
-      interviews = interviews.filter(i => filters.types!.includes(i.type));
-      console.log("After type filter:", interviews.length);
-    }
-
-    // Sort by createdAt client-side (newest first)
     interviews.sort((a, b) => {
-      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return dateB - dateA;
+      const aTime = new Date(String(a.createdAt ?? 0)).getTime();
+      const bTime = new Date(String(b.createdAt ?? 0)).getTime();
+      return bTime - aTime;
     });
 
-    // Filter by date range
-    if (filters.dateRange && (filters.dateRange.start || filters.dateRange.end)) {
-      const startDate = filters.dateRange.start ? new Date(filters.dateRange.start).getTime() : 0;
-      const endDate = filters.dateRange.end ? new Date(filters.dateRange.end).getTime() : Date.now();
-
-      interviews = interviews.filter((interview) => {
-        if (!interview.createdAt) return false;
-        const interviewDate = new Date(interview.createdAt).getTime();
-        return interviewDate >= startDate && interviewDate <= endDate;
-      });
-      console.log("After date range filter:", interviews.length);
+    if (filters.roles && filters.roles.length > 0) {
+      interviews = interviews.filter((interview) => filters.roles!.includes(interview.role));
     }
 
-    // Filter by score range (only if feedback exists)
-    if (filters.scoreRange && (filters.scoreRange.min > 0 || filters.scoreRange.max < 100)) {
-      const feedbackMap = new Map();
-      for (const interview of interviews) {
-        const feedbackSnap = await db
-          .collection("feedback")
-          .where("interviewId", "==", interview.id)
-          .limit(1)
-          .get();
-
-        if (!feedbackSnap.empty) {
-          const feedback = feedbackSnap.docs[0].data();
-          feedbackMap.set(interview.id, feedback.totalScore || 0);
-        }
-      }
+    if (filters.dateRange && (filters.dateRange.start || filters.dateRange.end)) {
+      const startDate = filters.dateRange.start
+        ? new Date(filters.dateRange.start).getTime()
+        : 0;
+      const endDate = filters.dateRange.end
+        ? new Date(filters.dateRange.end).getTime()
+        : Date.now();
 
       interviews = interviews.filter((interview) => {
-        const score = feedbackMap.get(interview.id);
-        // If no feedback/score, include the interview (don't filter out)
-        if (score === undefined) return true;
+        const createdAt = interview.createdAt ? new Date(interview.createdAt).getTime() : 0;
+        return createdAt >= startDate && createdAt <= endDate;
+      });
+    }
+
+    if (filters.status && filters.status !== "all") {
+      interviews = interviews.filter((interview) => {
+        const interviewStatus = String(interview.status || "").toLowerCase();
+        const hasFeedback = Boolean(interview.feedbackId || interview.completedAt);
+        const normalizedStatus = interviewStatus || (hasFeedback ? "completed" : "in-progress");
+        return normalizedStatus === filters.status;
+      });
+    }
+
+    if (!interviews.length) {
+      return { success: true, interviews: [] };
+    }
+
+    const interviewIds = interviews.map((interview) => interview.id);
+    const feedbackSnapshots = await Promise.all(
+      chunkArray(interviewIds, IN_QUERY_LIMIT).map((chunk) =>
+        db
+          .collection("feedback")
+          .where("userId", "==", userId)
+          .where("interviewId", "in", chunk)
+          .get()
+      )
+    );
+
+    const feedbackMap = new Map<
+      string,
+      { totalScore?: number; transcript?: Array<{ content?: string }> }
+    >();
+    feedbackSnapshots.forEach((feedbackSnapshot) => {
+      feedbackSnapshot.docs.forEach((doc) => {
+        const data = doc.data() as {
+          interviewId?: string;
+          totalScore?: number;
+          transcript?: Array<{ content?: string }>;
+        };
+        if (data.interviewId) {
+          feedbackMap.set(data.interviewId, {
+            totalScore: data.totalScore,
+            transcript: data.transcript,
+          });
+        }
+      });
+    });
+
+    // Filter by score range
+    if (filters.scoreRange) {
+      interviews = interviews.filter((interview) => {
+        const score = feedbackMap.get(interview.id)?.totalScore;
+        if (score === undefined) return false;
         return (
           score >= filters.scoreRange!.min &&
           score <= filters.scoreRange!.max
         );
       });
-      console.log("After score range filter:", interviews.length);
     }
 
     // Filter by keywords in transcript (only if keywords provided)
     if (filters.keywords && filters.keywords.length > 0) {
       const keywordSet = new Set(filters.keywords.map((k) => k.toLowerCase()));
-      const matchedInterviews: typeof interviews = [];
 
-      for (const interview of interviews) {
-        const feedbackSnap = await db
-          .collection("feedback")
-          .where("interviewId", "==", interview.id)
-          .limit(1)
-          .get();
+      interviews = interviews.filter((interview) => {
+        const transcript = (feedbackMap.get(interview.id)?.transcript || [])
+          .map((item) => String(item?.content || "").toLowerCase())
+          .join(" ");
 
-        let hasKeyword = false;
-        
-        if (!feedbackSnap.empty) {
-          const feedback = feedbackSnap.docs[0].data();
-          const transcript = (feedback.transcript || [])
-            .map((t: any) => t.content.toLowerCase())
-            .join(" ");
+        if (!transcript) return false;
 
-          hasKeyword = Array.from(keywordSet).some((keyword) =>
-            transcript.includes(keyword)
-          );
-        } else {
-          // If no transcript, check if keyword matches position or role
-          const position = (interview.position || "").toLowerCase();
-          const role = (interview.role || "").toLowerCase();
-          hasKeyword = Array.from(keywordSet).some((keyword) =>
-            position.includes(keyword) || role.includes(keyword)
-          );
-        }
-
-        if (hasKeyword) {
-          matchedInterviews.push(interview);
-        }
-      }
-
-      interviews = matchedInterviews;
-      console.log("After keyword filter:", interviews.length);
+        return Array.from(keywordSet).some((keyword) => transcript.includes(keyword));
+      });
     }
 
-    console.log("Final result interviews:", interviews.length);
     return { success: true, interviews };
   } catch (error) {
     console.error("Error searching interviews:", error);
@@ -188,16 +195,37 @@ export async function getSavedSearches() {
   }
 
   try {
-    const snapshot = await db
-      .collection("saved_searches")
-      .where("userId", "==", userId)
-      .orderBy("createdAt", "desc")
-      .get();
+    let snapshot;
+    try {
+      snapshot = await db
+        .collection("saved_searches")
+        .where("userId", "==", userId)
+        .orderBy("createdAt", "desc")
+        .get();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+      if (!message.includes("requires an index") && !message.includes("failed_precondition")) {
+        throw error;
+      }
+
+      snapshot = await db
+        .collection("saved_searches")
+        .where("userId", "==", userId)
+        .get();
+    }
 
     const searches = snapshot.docs.map((doc: FirebaseFirestore.QueryDocumentSnapshot) => ({
       id: doc.id,
       ...doc.data(),
-    }));
+    })) as Array<{ id: string; createdAt?: string } & Record<string, any>>;
+
+    searches.sort((a, b) => {
+      const aTime = new Date(String(a.createdAt ?? 0)).getTime();
+      const bTime = new Date(String(b.createdAt ?? 0)).getTime();
+      return bTime - aTime;
+    });
 
     return { success: true, searches };
   } catch (error) {
