@@ -143,10 +143,11 @@ export default function GoalsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <label htmlFor="goal-target-score" className="block text-sm font-medium text-slate-700 mb-2">
                     Target Score
                   </label>
                   <input
+                    id="goal-target-score"
                     type="number"
                     value={newGoal.targetScore}
                     onChange={(e) =>
@@ -157,6 +158,7 @@ export default function GoalsPage() {
                     }
                     min={0}
                     max={100}
+                    placeholder="0-100"
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -164,23 +166,26 @@ export default function GoalsPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <label htmlFor="goal-deadline" className="block text-sm font-medium text-slate-700 mb-2">
                     Deadline
                   </label>
                   <input
+                    id="goal-deadline"
                     type="date"
                     value={newGoal.deadline}
                     onChange={(e) =>
                       setNewGoal({ ...newGoal, deadline: e.target.value })
                     }
+                    placeholder="Select deadline"
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <label htmlFor="goal-priority" className="block text-sm font-medium text-slate-700 mb-2">
                     Priority
                   </label>
                   <select
+                    id="goal-priority"
                     value={newGoal.priority}
                     onChange={(e) =>
                       setNewGoal({
@@ -198,10 +203,11 @@ export default function GoalsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
+                <label htmlFor="goal-category" className="block text-sm font-medium text-slate-700 mb-2">
                   Category
                 </label>
                 <select
+                  id="goal-category"
                   value={newGoal.category}
                   onChange={(e) =>
                     setNewGoal({

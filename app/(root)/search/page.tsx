@@ -228,7 +228,9 @@ export default function SearchPage() {
                   </label>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
+                      <label htmlFor="search-start-date" className="sr-only">Start Date</label>
                       <input
+                        id="search-start-date"
                         type="date"
                         value={filters.startDate}
                         onChange={(e) =>
@@ -237,11 +239,15 @@ export default function SearchPage() {
                             startDate: e.target.value,
                           })
                         }
+                        placeholder="Start date"
+                        aria-label="Start date"
                         className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                     <div>
+                      <label htmlFor="search-end-date" className="sr-only">End Date</label>
                       <input
+                        id="search-end-date"
                         type="date"
                         value={filters.endDate}
                         onChange={(e) =>

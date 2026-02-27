@@ -7,6 +7,7 @@ interface Feedback {
     name: string;
     score: number;
     comment: string;
+    keyHighlights?: string[];
   }>;
   strengths: string[];
   areasForImprovement: string[];
@@ -14,6 +15,20 @@ interface Feedback {
   createdAt: string;
   transcript?: Array<{ role: string; content: string }>;
   shareId?: string | null;
+  overallScorePoints?: {
+    maxPoints: number;
+    earnedPoints: number;
+    breakdown: Array<{
+      category: string;
+      maxPoints: number;
+      earnedPoints: number;
+    }>;
+  };
+  criticalHighlights?: Array<{
+    type: "strength" | "improvement" | "critical";
+    text: string;
+    priority: "high" | "medium" | "low";
+  }>;
 }
 
 interface Interview {

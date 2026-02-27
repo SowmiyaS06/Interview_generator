@@ -168,31 +168,50 @@ export const feedbackSchema = z.object({
       name: z.literal("Communication Skills"),
       score: z.number(),
       comment: z.string(),
+      keyHighlights: z.array(z.string()).optional(),
     }),
     z.object({
       name: z.literal("Technical Knowledge"),
       score: z.number(),
       comment: z.string(),
+      keyHighlights: z.array(z.string()).optional(),
     }),
     z.object({
       name: z.literal("Problem Solving"),
       score: z.number(),
       comment: z.string(),
+      keyHighlights: z.array(z.string()).optional(),
     }),
     z.object({
       name: z.literal("Cultural Fit"),
       score: z.number(),
       comment: z.string(),
+      keyHighlights: z.array(z.string()).optional(),
     }),
     z.object({
       name: z.literal("Confidence and Clarity"),
       score: z.number(),
       comment: z.string(),
+      keyHighlights: z.array(z.string()).optional(),
     }),
   ]),
   strengths: z.array(z.string()),
   areasForImprovement: z.array(z.string()),
   finalAssessment: z.string(),
+  overallScorePoints: z.object({
+    maxPoints: z.number(),
+    earnedPoints: z.number(),
+    breakdown: z.array(z.object({
+      category: z.string(),
+      maxPoints: z.number(),
+      earnedPoints: z.number(),
+    })),
+  }),
+  criticalHighlights: z.array(z.object({
+    type: z.enum(["strength", "improvement", "critical"]),
+    text: z.string(),
+    priority: z.enum(["high", "medium", "low"]),
+  })),
 });
 
 export const interviewCovers = [

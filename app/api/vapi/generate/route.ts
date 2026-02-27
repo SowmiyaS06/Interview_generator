@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { revalidatePath } from "next/cache";
 
 import { auth, db } from "@/firebase/admin";
 import { getRandomInterviewCover } from "@/lib/utils";
@@ -15,6 +16,82 @@ const MIN_QUESTIONS = 1;
 const MAX_QUESTIONS = 20;
 const DEFAULT_QUESTIONS = 5;
 const MIN_TECHSTACK_ITEMS = 1;
+
+// Fallback questions when AI service is unavailable
+const FALLBACK_QUESTIONS: Record<string, Record<string, string[]>> = {
+  Technical: {
+    "Frontend Developer": [
+      "Explain the difference between state and props in React.",
+      "How do you optimize component rendering performance?",
+      "Describe how you would structure a large application.",
+      "What are hooks and why are they useful?",
+      "How do you handle forms and validation?",
+      "Explain the virtual DOM and its benefits.",
+      "How do you manage global state in your applications?",
+      "What testing strategies do you use for UI components?",
+    ],
+    "Backend Developer": [
+      "How do you design RESTful endpoints for a new feature?",
+      "What strategies do you use for error handling in APIs?",
+      "How do you secure an API against common vulnerabilities?",
+      "Explain how you would handle database transactions.",
+      "How would you implement pagination in a large dataset?",
+      "Describe your approach to API versioning.",
+      "How do you handle authentication and authorization?",
+      "What caching strategies do you implement?",
+    ],
+    "Fullstack Engineer": [
+      "How do you ensure data consistency across services?",
+      "Explain your caching strategy for a high-traffic app.",
+      "How do you monitor performance across the stack?",
+      "What trade-offs influence your choice of database?",
+      "How do you handle deployments and rollbacks?",
+      "Describe your approach to microservices architecture.",
+      "How do you optimize API response times?",
+      "Explain your testing strategy for full-stack features.",
+    ],
+    default: [
+      "Describe a challenging technical problem you solved recently.",
+      "How do you approach debugging complex issues?",
+      "Explain your process for learning new technologies.",
+      "How do you ensure code quality in your projects?",
+      "Describe your experience with version control and collaboration.",
+      "How do you handle technical debt?",
+      "What design patterns do you commonly use?",
+      "How do you approach performance optimization?",
+    ],
+  },
+  Behavioral: {
+    default: [
+      "Tell me about a time you had to resolve a conflict on a team.",
+      "Describe a project you led and what you learned.",
+      "How do you prioritize tasks when everything is urgent?",
+      "Tell me about a failure and how you responded.",
+      "How do you handle feedback from peers or managers?",
+      "Describe a situation where you had to learn quickly.",
+      "How do you communicate technical concepts to non-technical stakeholders?",
+      "Tell me about a time you went above and beyond.",
+    ],
+  },
+  Mixed: {
+    default: [
+      "Describe your approach to solving complex technical problems.",
+      "Tell me about a time you had to make a difficult technical decision.",
+      "How do you balance technical debt with feature development?",
+      "Describe a project where you collaborated across teams.",
+      "How do you stay current with industry trends?",
+      "Tell me about a time you improved a process or system.",
+      "How do you handle disagreements about technical approaches?",
+      "Describe your ideal development workflow.",
+    ],
+  },
+};
+
+const getFallbackQuestions = (type: string, role: string, amount: number): string[] => {
+  const typeQuestions = FALLBACK_QUESTIONS[type] || FALLBACK_QUESTIONS.Technical;
+  const roleQuestions = typeQuestions[role] || typeQuestions.default || FALLBACK_QUESTIONS.Technical.default;
+  return roleQuestions.slice(0, amount);
+};
 
 const serverDebugLog = (label: string, payload?: unknown) => {
   if (!SERVER_VAPI_DEBUG) return;
@@ -223,14 +300,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // Check API key early
-  if (!process.env.OPENROUTER_API_KEY?.trim()) {
-    return Response.json(
-      { success: false, error: "AI service not configured" },
-      { status: 503 }
-    );
-  }
-
   const type = pickString([payload.type], "Technical");
   const role = pickString([payload.role, payload.jobRole, payload.position], "General");
   const level = pickString([payload.level, payload.experienceLevel, payload.seniority], "Mid");
@@ -304,6 +373,7 @@ export async function POST(request: Request) {
     let generatedPrompt = "";
     let generatedText = "";
     let cacheHit = false;
+    let usedFallback = false;
 
     if (!questions.length) {
       // Try to get from cache first
@@ -323,44 +393,70 @@ export async function POST(request: Request) {
           cachedQuestionsCount: questions.length,
         });
       } else {
-        // Generate new questions
-        generatedPrompt = buildInterviewPrompt({
-          role,
-          level,
-          techStackList,
-          type,
-          amount,
-          difficulty,
-        });
+        // Try to generate new questions with AI
+        try {
+          generatedPrompt = buildInterviewPrompt({
+            role,
+            level,
+            techStackList,
+            type,
+            amount,
+            difficulty,
+          });
 
-        generatedText = await generateQuestionsWithOpenRouter(generatedPrompt);
-        
-        serverDebugLog("Questions generated", {
-          model: process.env.OPENROUTER_MODEL?.trim() || DEFAULT_MODEL,
-        });
+          generatedText = await generateQuestionsWithOpenRouter(generatedPrompt);
+          
+          serverDebugLog("Questions generated", {
+            model: process.env.OPENROUTER_MODEL?.trim() || DEFAULT_MODEL,
+          });
 
-        questions = parseQuestions(generatedText);
-        
-        serverDebugLog("Questions parsed", {
-          parsedQuestionsCount: questions.length,
-        });
+          questions = parseQuestions(generatedText);
+          
+          serverDebugLog("Questions parsed", {
+            parsedQuestionsCount: questions.length,
+          });
 
-        // Cache the generated questions for future use
-        if (questions.length > 0) {
-          cacheQuestions(
-            {
-              role,
-              level,
-              techstack: techStackList,
-              type,
-              amount: questions.length,
-            },
-            questions
-          ).catch((error) => {
-            console.error("Failed to cache questions:", error);
+          // Cache the generated questions for future use
+          if (questions.length > 0) {
+            cacheQuestions(
+              {
+                role,
+                level,
+                techstack: techStackList,
+                type,
+                amount: questions.length,
+              },
+              questions
+            ).catch((error) => {
+              console.error("Failed to cache questions:", error);
+            });
+          }
+        } catch (aiError) {
+          // AI service failed, use fallback questions
+          serverDebugLog("AI service failed, using fallback questions", {
+            error: aiError instanceof Error ? aiError.message : "Unknown error",
+          });
+          
+          questions = getFallbackQuestions(type, role, amount);
+          usedFallback = true;
+          
+          serverDebugLog("Using fallback questions", {
+            count: questions.length,
+            type,
+            role,
           });
         }
       }
+    }
+
+    // Final fallback if still no questions
+    if (!questions.length) {
+      questions = getFallbackQuestions(type, role, amount);
+      usedFallback = true;
+      
+      serverDebugLog("Final fallback - using default questions", {
+        count: questions.length,
+      });
     }
 
     if (!questions.length) {
@@ -373,12 +469,11 @@ export async function POST(request: Request) {
     // Update amount to match actual questions generated
     const actualAmount = questions.length;
 
-    const interview = {
+    const interview: Record<string, unknown> = {
       role,
       type,
       level,
       difficulty,
-      templateId,
       techstack: techStackList,
       questions,
       amount: actualAmount,
@@ -387,6 +482,11 @@ export async function POST(request: Request) {
       coverImage: getRandomInterviewCover(),
       createdAt: new Date().toISOString(),
     };
+
+    // Only add templateId if it's defined (Firestore doesn't accept undefined)
+    if (templateId) {
+      interview.templateId = templateId;
+    }
 
     const interviewRef = await db.collection("interviews").add(interview);
 
@@ -399,10 +499,11 @@ export async function POST(request: Request) {
       actualAmount,
       userId,
       cacheHit,
+      usedFallback,
     });
 
-    // Track API cost only if not from cache (async, don't wait)
-    if (!cacheHit && generatedPrompt && generatedText) {
+    // Track API cost only if not from cache and not fallback (async, don't wait)
+    if (!cacheHit && !usedFallback && generatedPrompt && generatedText) {
       trackApiCost({
         userId,
         model: process.env.OPENROUTER_MODEL?.trim() || DEFAULT_MODEL,
@@ -415,6 +516,9 @@ export async function POST(request: Request) {
       });
     }
 
+    // Revalidate homepage to show the new interview in "Your Interviews"
+    revalidatePath("/");
+
     return Response.json(
       {
         success: true,
@@ -425,6 +529,7 @@ export async function POST(request: Request) {
         amount: actualAmount,
         techstack: techStackList,
         userId,
+        usedFallback,
       },
       { status: 200 }
     );

@@ -187,10 +187,11 @@ export default function CompanyInterviewsPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <label htmlFor="company-size" className="block text-sm font-medium text-slate-700 mb-2">
                     Company Size
                   </label>
                   <select
+                    id="company-size"
                     value={newCompany.size}
                     onChange={(e) =>
                       setNewCompany({
@@ -305,10 +306,11 @@ export default function CompanyInterviewsPage() {
                               />
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-2">
+                              <label htmlFor="interview-stage" className="block text-sm font-medium text-slate-700 mb-2">
                                 Interview Stage
                               </label>
                               <select
+                                id="interview-stage"
                                 value={newInterview.stage}
                                 onChange={(e) =>
                                   setNewInterview({
@@ -326,10 +328,11 @@ export default function CompanyInterviewsPage() {
                             </div>
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-2">
+                            <label htmlFor="interview-status" className="block text-sm font-medium text-slate-700 mb-2">
                               Status
                             </label>
                             <select
+                              id="interview-status"
                               value={newInterview.status}
                               onChange={(e) =>
                                 setNewInterview({
