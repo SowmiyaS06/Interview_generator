@@ -14,28 +14,47 @@ export default function PerformancePage() {
   const [trends, setTrends] = useState<any[]>([]);
   const [statistics, setStatistics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPerformanceData();
   }, []);
 
   const fetchPerformanceData = async () => {
-    setLoading(true);
-    // Fetch current metrics and trends
-    const [metricsResult, trendsResult, statisticsResult] = await Promise.all([
-      getLatestPerformanceMetrics(),
-      getPerformanceTrend(),
-      getUserStatistics(),
-    ]);
+    try {
+      setLoading(true);
+      setError(null);
 
-    if (metricsResult.success) {
-      setMetrics(metricsResult.metrics);
+      // Fetch current metrics and trends
+      const [metricsResult, trendsResult, statisticsResult] = await Promise.all([
+        getLatestPerformanceMetrics(),
+        getPerformanceTrend(),
+        getUserStatistics(),
+      ]);
+
+      // Set metrics if available (null if no metrics yet)
+      if (metricsResult.success && metricsResult.metrics) {
+        setMetrics(metricsResult.metrics);
+      } else {
+        setMetrics(null); // No metrics available yet - this is normal for new users
+      }
+
+      if (trendsResult.success) {
+        setTrends(trendsResult.trends || []);
+      }
+
+      if (statisticsResult && statisticsResult.totalInterviews > 0) {
+        setStatistics(statisticsResult);
+      } else {
+        setStatistics(null);
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to load performance data";
+      setError(errorMessage);
+      console.error("Error loading performance data:", err);
+    } finally {
+      setLoading(false);
     }
-    if (trendsResult.success) {
-      setTrends(trendsResult.trends || []);
-    }
-    setStatistics(statisticsResult || null);
-    setLoading(false);
   };
 
   const getSpeedColor = (speed: string) => {
@@ -76,7 +95,10 @@ export default function PerformancePage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-[#181c24] to-[#23272f]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          <p className="text-slate-300 mt-4">Loading your performance data...</p>
+        </div>
       </div>
     );
   }
@@ -89,6 +111,21 @@ export default function PerformancePage() {
           <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight drop-shadow-lg">Performance Insights</h1>
           <p className="text-lg text-slate-300 mt-3">Real-time analytics of your interview performance</p>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="glass-card p-4 mb-8 border-l-4 border-red-500">
+            <div className="flex justify-between items-center">
+              <p className="text-red-300">⚠️ {error}</p>
+              <button
+                onClick={fetchPerformanceData}
+                className="text-sm bg-red-700 hover:bg-red-800 text-white px-3 py-1 rounded"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
 
         {statistics && (
           <section className="mb-10">
@@ -264,10 +301,14 @@ export default function PerformancePage() {
           </>
         )}
 
-        {statistics?.totalFeedbacks === 0 && (
+        {!metrics && !loading && (
           <div className="glass-card p-12 text-center">
-            <h3 className="text-xl font-semibold text-slate-200 mb-2">No performance data yet</h3>
-            <p className="text-slate-400">Complete some interviews to see your performance analytics</p>
+            <div className="mb-4 text-4xl">📊</div>
+            <h3 className="text-xl font-semibold text-slate-200 mb-2">No Performance Data Yet</h3>
+            <p className="text-slate-400 mb-6">Complete interviews to generate your performance analytics and insights</p>
+            <a href="/interview" className="inline-block px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition">
+              Start an Interview
+            </a>
           </div>
         )}
       </div>

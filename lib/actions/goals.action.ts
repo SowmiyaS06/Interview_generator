@@ -143,7 +143,6 @@ export async function getUserGoals() {
     const snapshot = await db
       .collection("interview_goals")
       .where("userId", "==", userId)
-      .orderBy("deadline", "asc")
       .get();
 
     const goals = snapshot.docs.map((doc: FirebaseFirestore.QueryDocumentSnapshot) => ({
@@ -151,7 +150,13 @@ export async function getUserGoals() {
       ...doc.data(),
     }));
 
-    return { success: true, goals };
+    // Sort by deadline on the client side
+    const sortedGoals = goals.sort((a: any, b: any) => {
+      if (!a.deadline || !b.deadline) return 0;
+      return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+    });
+
+    return { success: true, goals: sortedGoals };
   } catch (error) {
     console.error("Error fetching goals:", error);
     return { success: false, error: "Failed to fetch goals" };

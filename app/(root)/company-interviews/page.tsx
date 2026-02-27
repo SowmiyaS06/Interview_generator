@@ -13,6 +13,7 @@ export default function CompanyInterviewsPage() {
   const [companies, setCompanies] = useState<any[]>([]);
   const [showCreateCompany, setShowCreateCompany] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
   const [showAddInterview, setShowAddInterview] = useState(false);
 
@@ -35,32 +36,51 @@ export default function CompanyInterviewsPage() {
   }, []);
 
   const fetchCompanyInterviews = async () => {
-    setLoading(true);
-    const result = await getUserCompanyInterviews();
-    if (result.success) {
-      setCompanies(result.interviews || []);
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await getUserCompanyInterviews();
+      if (result.success) {
+        setCompanies(result.interviews || []);
+      } else {
+        setCompanies([]); // No companies yet - normal for new users
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to load your company interviews";
+      setError(errorMessage);
+      console.error("Error loading company interviews:", err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleCreateCompany = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = await createCompanyProfile(
-      newCompany.name,
-      newCompany.industry,
-      newCompany.size,
-      newCompany.website
-    );
+    try {
+      setError(null);
+      const result = await createCompanyProfile(
+        newCompany.name,
+        newCompany.industry,
+        newCompany.size,
+        newCompany.website
+      );
 
-    if (result.success) {
-      setNewCompany({
-        name: "",
-        industry: "",
-        size: "medium",
-        website: "",
-      });
-      setShowCreateCompany(false);
-      fetchCompanyInterviews();
+      if (result.success) {
+        setNewCompany({
+          name: "",
+          industry: "",
+          size: "medium",
+          website: "",
+        });
+        setShowCreateCompany(false);
+        await fetchCompanyInterviews();
+      } else {
+        setError(result.error || "Failed to create company profile");
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to create company profile";
+      setError(errorMessage);
+      console.error("Error creating company:", err);
     }
   };
 
@@ -68,23 +88,32 @@ export default function CompanyInterviewsPage() {
     e.preventDefault();
     if (!selectedCompany) return;
 
-    const result = await recordCompanyInterview(
-      selectedCompany,
-      newInterview.position,
-      newInterview.stage,
-      newInterview.status,
-      newInterview.feedback
-    );
+    try {
+      setError(null);
+      const result = await recordCompanyInterview(
+        selectedCompany,
+        newInterview.position,
+        newInterview.stage,
+        newInterview.status,
+        newInterview.feedback
+      );
 
-    if (result.success) {
-      setNewInterview({
-        position: "",
-        stage: "phone_screen",
-        status: "scheduled",
-        feedback: "",
-      });
-      setShowAddInterview(false);
-      fetchCompanyInterviews();
+      if (result.success) {
+        setNewInterview({
+          position: "",
+          stage: "phone_screen",
+          status: "scheduled",
+          feedback: "",
+        });
+        setShowAddInterview(false);
+        await fetchCompanyInterviews();
+      } else {
+        setError(result.error || "Failed to record interview");
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to record interview";
+      setError(errorMessage);
+      console.error("Error recording interview:", err);
     }
   };
 
@@ -121,7 +150,10 @@ export default function CompanyInterviewsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-[#181c24] to-[#23272f]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          <p className="text-slate-300 mt-4">Loading your company interviews...</p>
+        </div>
       </div>
     );
   }
@@ -135,13 +167,31 @@ export default function CompanyInterviewsPage() {
             <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight drop-shadow-lg">Company Interviews</h1>
             <p className="text-lg text-slate-300 mt-3">Track your interviews with different companies</p>
           </div>
-          <Button
+          <button
             onClick={() => setShowCreateCompany(!showCreateCompany)}
-            className="glass-card px-6 py-2 text-base font-semibold text-white bg-blue-700/80 hover:bg-blue-800/90 shadow-lg"
+            className="glass-card px-6 py-2 text-base font-semibold text-white bg-blue-700/80 hover:bg-blue-800/90 shadow-lg rounded-lg"
           >
             {showCreateCompany ? "Cancel" : "+ New Company"}
-          </Button>
+          </button>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="glass-card p-4 mb-8 border-l-4 border-red-500">
+            <div className="flex justify-between items-center">
+              <p className="text-red-300">⚠️ {error}</p>
+              <button
+                onClick={() => {
+                  setError(null);
+                  fetchCompanyInterviews();
+                }}
+                className="text-sm bg-red-700 hover:bg-red-800 text-white px-3 py-1 rounded"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Create Company Form */}
         {showCreateCompany && (

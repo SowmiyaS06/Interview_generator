@@ -8,35 +8,51 @@ export default function AchievementsPage() {
   const [level, setLevel] = useState<any>(null);
   const [streak, setStreak] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadGamificationData();
   }, []);
 
   const loadGamificationData = async () => {
-    setLoading(true);
-    const [achievementsResult, levelResult, streakResult] = await Promise.all([
-      getUserAchievements(),
-      getUserLevel(),
-      getStreaks(),
-    ]);
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [achievementsResult, levelResult, streakResult] = await Promise.all([
+        getUserAchievements(),
+        getUserLevel(),
+        getStreaks(),
+      ]);
 
-    if (achievementsResult.success) {
-      setAchievements(achievementsResult.achievements || []);
+      if (achievementsResult.success && achievementsResult.achievements) {
+        setAchievements(achievementsResult.achievements);
+      } else {
+        setAchievements([]);
+      }
+      
+      if (levelResult.success && levelResult.level) {
+        setLevel(levelResult.level);
+      }
+      
+      if (streakResult.success && streakResult.streak) {
+        setStreak(streakResult.streak);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load achievements");
+      console.error("Error loading gamification data:", err);
+    } finally {
+      setLoading(false);
     }
-    if (levelResult.success) {
-      setLevel(levelResult.level);
-    }
-    if (streakResult.success) {
-      setStreak(streakResult.streak);
-    }
-    setLoading(false);
   };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-[#181c24] to-[#23272f]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-slate-300">Loading your achievements...</p>
+        </div>
       </div>
     );
   }
@@ -45,14 +61,31 @@ export default function AchievementsPage() {
     <div className="min-h-screen bg-gradient-to-br from-[#181c24] to-[#23272f] p-6">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="mb-10">
-          <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight drop-shadow-lg">
-            Achievements & Progress
-          </h1>
-          <p className="text-lg text-slate-300 mt-3">
-            Track your interview preparation journey and celebrate your milestones.
-          </p>
+        <div className="flex justify-between items-center mb-10">
+          <div>
+            <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight drop-shadow-lg">
+              Achievements & Progress
+            </h1>
+            <p className="text-lg text-slate-300 mt-3">
+              Track your interview preparation journey and celebrate your milestones.
+            </p>
+          </div>
+          {error && (
+            <button 
+              onClick={loadGamificationData} 
+              className="bg-blue-700 hover:bg-blue-800 text-white px-4 py-2 rounded-lg font-semibold"
+            >
+              Retry
+            </button>
+          )}
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="glass-card p-4 mb-8 border-l-4 border-red-500">
+            <p className="text-red-300">⚠️ {error}</p>
+          </div>
+        )}
 
         {/* User Stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">

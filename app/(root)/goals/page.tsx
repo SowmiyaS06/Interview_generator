@@ -14,6 +14,7 @@ import {
 export default function GoalsPage() {
   const [goals, setGoals] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newGoal, setNewGoal] = useState({
     title: "",
@@ -26,14 +27,24 @@ export default function GoalsPage() {
 
   useEffect(() => {
     async function fetchGoals() {
-      setLoading(true);
-      const result = await getUserGoals();
-      if (result.success && result.goals) {
-        setGoals(result.goals);
-      } else {
+      try {
+        setLoading(true);
+        setError(null);
+        const result = await getUserGoals();
+        if (result.success) {
+          setGoals(result.goals || []);
+        } else {
+          setGoals([]);
+          // Only show error if there was an actual failure, not just no goals
+          console.error("Failed to load goals:", result.error);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load goals");
+        console.error("Error fetching goals:", err);
         setGoals([]);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
     fetchGoals();
   }, []);
@@ -115,13 +126,36 @@ export default function GoalsPage() {
             <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight drop-shadow-lg">Interview Goals</h1>
             <p className="text-lg text-slate-300 mt-3">Track your interview preparation and set learning goals</p>
           </div>
-          <Button
+          <button
             onClick={() => setShowCreateForm(!showCreateForm)}
-            className="glass-card px-6 py-2 text-base font-semibold text-white bg-blue-700/80 hover:bg-blue-800/90 shadow-lg"
+            className="glass-card px-6 py-2 text-base font-semibold text-white bg-blue-700/80 hover:bg-blue-800/90 shadow-lg rounded-lg"
           >
             {showCreateForm ? "Cancel" : "+ New Goal"}
-          </Button>
+          </button>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="glass-card p-4 mb-8 border-l-4 border-red-500">
+            <div className="flex justify-between items-center">
+              <p className="text-red-300">⚠️ {error}</p>
+              <button
+                onClick={() => {
+                  setError(null);
+                  // Refetch goals
+                  getUserGoals().then((result) => {
+                    if (result.success && result.goals) {
+                      setGoals(result.goals);
+                    }
+                  });
+                }}
+                className="text-sm bg-red-700 hover:bg-red-800 text-white px-3 py-1 rounded"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Create Goal Form */}
         {showCreateForm && (

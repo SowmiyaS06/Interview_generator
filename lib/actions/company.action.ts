@@ -17,7 +17,7 @@ export async function createCompanyProfile(
 
   try {
     const companyId = db.collection("company_profiles").doc().id;
-    await db.collection("company_profiles").doc(companyId).set({
+    const companyData = {
       userId,
       name,
       industry,
@@ -34,12 +34,21 @@ export async function createCompanyProfile(
       },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    });
+    };
+
+    const sanitizedCompanyData = Object.fromEntries(
+      Object.entries(companyData).filter(([, value]) => value !== undefined)
+    );
+
+    await db.collection("company_profiles").doc(companyId).set(sanitizedCompanyData);
 
     return { success: true, companyId };
   } catch (error) {
     console.error("Error creating company profile:", error);
-    return { success: false, error: "Failed to create company profile" };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to create company profile",
+    };
   }
 }
 
@@ -91,7 +100,7 @@ export async function recordCompanyInterview(
     }
 
     const companyInterviewId = db.collection("company_interviews").doc().id;
-    await db.collection("company_interviews").doc(companyInterviewId).set({
+    const interviewData = {
       userId,
       companyId,
       position,
@@ -99,12 +108,21 @@ export async function recordCompanyInterview(
       status,
       feedback,
       createdAt: new Date().toISOString(),
-    });
+    };
+
+    const sanitizedInterviewData = Object.fromEntries(
+      Object.entries(interviewData).filter(([, value]) => value !== undefined)
+    );
+
+    await db.collection("company_interviews").doc(companyInterviewId).set(sanitizedInterviewData);
 
     return { success: true, companyInterviewId };
   } catch (error) {
     console.error("Error recording company interview:", error);
-    return { success: false, error: "Failed to record interview" };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to record interview",
+    };
   }
 }
 
@@ -115,11 +133,30 @@ export async function getUserCompanyInterviews() {
   }
 
   try {
+    const companiesSnapshot = await db
+      .collection("company_profiles")
+      .where("userId", "==", userId)
+      .get();
+
     const interviewSnapshot = await db
       .collection("company_interviews")
       .where("userId", "==", userId)
       .orderBy("createdAt", "desc")
       .get();
+
+    const companies = companiesSnapshot.docs.map((doc: FirebaseFirestore.QueryDocumentSnapshot) => ({
+      id: doc.id,
+      ...(doc.data() as Record<string, unknown>),
+    })) as Array<{
+      id: string;
+      userId: string;
+      name?: string;
+      interviewStyle?: string;
+      industry?: string;
+      size?: string;
+      website?: string;
+      createdAt?: string;
+    }>;
 
     const rawInterviews = interviewSnapshot.docs.map((doc: FirebaseFirestore.QueryDocumentSnapshot) => ({
       id: doc.id,
@@ -134,59 +171,27 @@ export async function getUserCompanyInterviews() {
       createdAt: string;
     }>;
 
-    if (!rawInterviews.length) {
+    if (!companies.length) {
       return { success: true, interviews: [] };
     }
 
-    const companyIds = Array.from(new Set(rawInterviews.map((entry) => entry.companyId)));
-    const companyDocs = await Promise.all(
-      companyIds.map((companyId) => db.collection("company_profiles").doc(companyId).get())
-    );
-
-    const companyMap = new Map(
-      companyDocs
-        .filter((doc) => doc.exists)
-        .map((doc) => [doc.id, doc.data() as Record<string, unknown>])
-    );
-
-    const groupedMap = new Map<
+    const interviewsByCompany = new Map<
       string,
-      {
+      Array<{
         id: string;
-        companyName: string;
-        interviewStyle: string;
-        industry: string;
-        size: string;
-        website?: string;
-        interviews: Array<{
-          id: string;
-          position: string;
-          stage: string;
-          status: string;
-          feedback?: string;
-          createdAt: string;
-        }>;
-      }
+        position: string;
+        stage: string;
+        status: string;
+        feedback?: string;
+        createdAt: string;
+      }>
     >();
 
     for (const interview of rawInterviews) {
-      const companyData = companyMap.get(interview.companyId);
-      if (!companyData) continue;
-      if (String(companyData.userId ?? "") !== userId) continue;
-
-      if (!groupedMap.has(interview.companyId)) {
-        groupedMap.set(interview.companyId, {
-          id: interview.companyId,
-          companyName: String(companyData.name ?? "Unknown Company"),
-          interviewStyle: String(companyData.interviewStyle ?? "Not provided"),
-          industry: String(companyData.industry ?? ""),
-          size: String(companyData.size ?? ""),
-          website: companyData.website ? String(companyData.website) : undefined,
-          interviews: [],
-        });
+      if (!interviewsByCompany.has(interview.companyId)) {
+        interviewsByCompany.set(interview.companyId, []);
       }
-
-      groupedMap.get(interview.companyId)!.interviews.push({
+      interviewsByCompany.get(interview.companyId)!.push({
         id: interview.id,
         position: interview.position,
         stage: interview.stage,
@@ -196,11 +201,24 @@ export async function getUserCompanyInterviews() {
       });
     }
 
-    const interviews = Array.from(groupedMap.values()).sort((a, b) => {
+    const interviews = companies
+      .map((company) => ({
+        id: company.id,
+        companyName: String(company.name ?? "Unknown Company"),
+        interviewStyle: String(company.interviewStyle ?? "Not provided"),
+        industry: String(company.industry ?? ""),
+        size: String(company.size ?? ""),
+        website: company.website ? String(company.website) : undefined,
+        interviews: interviewsByCompany.get(company.id) ?? [],
+      }))
+      .sort((a, b) => {
       const aLatest = a.interviews[0]?.createdAt ?? "";
       const bLatest = b.interviews[0]?.createdAt ?? "";
+      if (!aLatest && !bLatest) return 0;
+      if (!aLatest) return 1;
+      if (!bLatest) return -1;
       return new Date(bLatest).getTime() - new Date(aLatest).getTime();
-    });
+      });
 
     return { success: true, interviews };
   } catch (error) {

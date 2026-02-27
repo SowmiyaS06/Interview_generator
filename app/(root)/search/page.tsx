@@ -13,6 +13,7 @@ export default function SearchPage() {
   const [results, setResults] = useState<any[]>([]);
   const [savedSearches, setSavedSearches] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [searchName, setSearchName] = useState("");
 
@@ -46,53 +47,88 @@ export default function SearchPage() {
   }, []);
 
   const loadSavedSearches = async () => {
-    const result = await getSavedSearches();
-    if (result.success) {
-      setSavedSearches(result.searches || []);
+    try {
+      setError(null);
+      const result = await getSavedSearches();
+      if (result.success) {
+        setSavedSearches(result.searches || []);
+      } else {
+        setSavedSearches([]); // No saved searches yet - normal for new users
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to load saved searches";
+      console.error("Error loading saved searches:", err);
+      // Don't show error for saved searches as it's secondary
     }
   };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    try {
+      setLoading(true);
+      setError(null);
 
-    const result = await searchInterviews({
-      keywords: filters.keyword ? [filters.keyword] : undefined,
-      scoreRange: {
-        min: filters.minScore,
-        max: filters.maxScore,
-      },
-      dateRange: filters.startDate || filters.endDate ? {
-        start: filters.startDate || "",
-        end: filters.endDate || "",
-      } : undefined,
-      roles: filters.roles.length > 0 ? filters.roles : undefined,
-      difficulties: filters.difficulties.length > 0 ? filters.difficulties : undefined,
-      types: filters.types.length > 0 ? filters.types : undefined,
-      tags: filters.tags.length > 0 ? filters.tags : undefined,
-    });
+      const result = await searchInterviews({
+        keywords: filters.keyword ? [filters.keyword] : undefined,
+        scoreRange: {
+          min: filters.minScore,
+          max: filters.maxScore,
+        },
+        dateRange: filters.startDate || filters.endDate ? {
+          start: filters.startDate || "",
+          end: filters.endDate || "",
+        } : undefined,
+        roles: filters.roles.length > 0 ? filters.roles : undefined,
+        difficulties: filters.difficulties.length > 0 ? filters.difficulties : undefined,
+        types: filters.types.length > 0 ? filters.types : undefined,
+        tags: filters.tags.length > 0 ? filters.tags : undefined,
+      });
 
-    if (result.success) {
-      setResults(result.interviews || []);
+      if (result.success) {
+        setResults(result.interviews || []);
+      } else {
+        throw new Error("Search failed. Please try again.");
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to search interviews";
+      setError(errorMessage);
+      console.error("Error searching:", err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleSaveSearch = async () => {
     if (!searchName.trim()) return;
 
-    const result = await saveSearch(searchName, filters);
-    if (result.success) {
-      setSearchName("");
-      setShowSavePrompt(false);
-      loadSavedSearches();
+    try {
+      const result = await saveSearch(searchName, filters);
+      if (result.success) {
+        setSearchName("");
+        setShowSavePrompt(false);
+        await loadSavedSearches();
+      } else {
+        setError("Failed to save search");
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to save search";
+      setError(errorMessage);
+      console.error("Error saving search:", err);
     }
   };
 
   const handleDeleteSavedSearch = async (searchId: string) => {
-    const result = await deleteSavedSearch(searchId);
-    if (result.success) {
-      loadSavedSearches();
+    try {
+      const result = await deleteSavedSearch(searchId);
+      if (result.success) {
+        await loadSavedSearches();
+      } else {
+        setError("Failed to delete search");
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to delete search";
+      setError(errorMessage);
+      console.error("Error deleting search:", err);
     }
   };
 
@@ -114,6 +150,21 @@ export default function SearchPage() {
           <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight drop-shadow-lg">Search Interviews</h1>
           <p className="text-lg text-slate-300 mt-3">Find interviews using advanced filters</p>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="glass-card p-4 mb-8 border-l-4 border-red-500">
+            <div className="flex justify-between items-center">
+              <p className="text-red-300">⚠️ {error}</p>
+              <button
+                onClick={() => setError(null)}
+                className="text-sm bg-red-700 hover:bg-red-800 text-white px-3 py-1 rounded"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Saved Searches Sidebar */}
