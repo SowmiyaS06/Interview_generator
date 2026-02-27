@@ -107,36 +107,49 @@ export default function SearchPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#181c24] to-[#23272f] p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="mb-10">
-          <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight drop-shadow-lg">Search Interviews</h1>
-          <p className="text-lg text-slate-300 mt-3">Find interviews using advanced filters</p>
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold text-slate-900">
+            Search Interviews
+          </h1>
+          <p className="text-slate-600 mt-2">
+            Find interviews using advanced filters
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Saved Searches Sidebar */}
-          <div className="glass-card p-6">
-            <h2 className="text-xl font-bold text-white mb-4">Saved Searches</h2>
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h2 className="text-xl font-bold text-slate-900 mb-4">
+              Saved Searches
+            </h2>
             <div className="space-y-2">
               {savedSearches.length === 0 ? (
-                <p className="text-sm text-slate-400 text-center py-4">No saved searches yet</p>
+                <p className="text-sm text-slate-600 text-center py-4">
+                  No saved searches yet
+                </p>
               ) : (
                 savedSearches.map((search) => (
-                  <div key={search.id} className="flex items-center justify-between p-2 hover:bg-slate-800/40 rounded">
+                  <div
+                    key={search.id}
+                    className="flex items-center justify-between p-2 hover:bg-slate-50 rounded"
+                  >
                     <button
                       onClick={() => {
                         setFilters(search.filters);
-                        handleSearch(new Event("submit") as any);
+                        handleSearch(
+                          new Event("submit") as any
+                        );
                       }}
-                      className="flex-1 text-left text-sm text-blue-300 hover:text-blue-400"
+                      className="flex-1 text-left text-sm text-blue-600 hover:text-blue-800"
                     >
                       {search.name}
                     </button>
                     <button
                       onClick={() => handleDeleteSavedSearch(search.id)}
-                      className="text-red-400 hover:text-red-600 text-xs ml-2"
+                      className="text-red-600 hover:text-red-800 text-xs ml-2"
                     >
                       ✕
                     </button>
@@ -148,8 +161,8 @@ export default function SearchPage() {
 
           {/* Search Form */}
           <div className="lg:col-span-2">
-            <div className="glass-card p-8">
-              <h2 className="text-xl font-bold text-white mb-6">Filters</h2>
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold text-slate-900 mb-6">Filters</h2>
               <form onSubmit={handleSearch} className="space-y-6">
                 {/* Keyword */}
                 <div>
@@ -163,7 +176,7 @@ export default function SearchPage() {
                       setFilters({ ...filters, keyword: e.target.value })
                     }
                     placeholder="Search interview transcripts..."
-                    className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
@@ -186,7 +199,7 @@ export default function SearchPage() {
                           })
                         }
                         placeholder="Min"
-                        className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                     <div>
@@ -202,7 +215,7 @@ export default function SearchPage() {
                           })
                         }
                         placeholder="Max"
-                        className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                   </div>
@@ -228,7 +241,7 @@ export default function SearchPage() {
                         }
                         placeholder="Start date"
                         aria-label="Start date"
-                        className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                     <div>
@@ -267,8 +280,8 @@ export default function SearchPage() {
                         }
                         className={`px-3 py-1 rounded-full text-sm font-medium transition ${
                           filters.roles.includes(role)
-                            ? "bg-blue-700 text-white shadow"
-                            : "bg-[#23272f] text-blue-200 hover:bg-blue-800/60"
+                            ? "bg-blue-600 text-white"
+                            : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                         }`}
                       >
                         {role}
@@ -298,8 +311,8 @@ export default function SearchPage() {
                         }
                         className={`px-3 py-1 rounded-full text-sm font-medium transition ${
                           filters.difficulties.includes(difficulty)
-                            ? "bg-green-700 text-white shadow"
-                            : "bg-[#23272f] text-green-200 hover:bg-green-800/60"
+                            ? "bg-green-600 text-white"
+                            : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                         }`}
                       >
                         {difficulty}
@@ -326,8 +339,8 @@ export default function SearchPage() {
                         }
                         className={`px-3 py-1 rounded-full text-sm font-medium transition ${
                           filters.types.includes(type)
-                            ? "bg-purple-700 text-white shadow"
-                            : "bg-[#23272f] text-purple-200 hover:bg-purple-800/60"
+                            ? "bg-purple-600 text-white"
+                            : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                         }`}
                       >
                         {type}
@@ -341,14 +354,14 @@ export default function SearchPage() {
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="flex-1 glass-card bg-blue-700/80 hover:bg-blue-800/90 text-white font-semibold"
+                    className="flex-1 bg-blue-600 hover:bg-blue-700"
                   >
                     {loading ? "Searching..." : "Search"}
                   </Button>
                   <Button
                     type="button"
                     onClick={() => setShowSavePrompt(true)}
-                    className="flex-1 glass-card bg-green-700/80 hover:bg-green-800/90 text-white font-semibold"
+                    className="flex-1 bg-green-600 hover:bg-green-700"
                   >
                     Save Search
                   </Button>
@@ -357,24 +370,24 @@ export default function SearchPage() {
 
               {/* Save Search Prompt */}
               {showSavePrompt && (
-                <div className="mt-4 p-4 glass-card border">
+                <div className="mt-4 p-4 bg-slate-50 rounded border">
                   <input
                     type="text"
                     value={searchName}
                     onChange={(e) => setSearchName(e.target.value)}
                     placeholder="Save this search as..."
-                    className="w-full px-4 py-2 bg-[#23272f] border border-blue-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
                   />
                   <div className="flex gap-2">
                     <Button
                       onClick={handleSaveSearch}
-                      className="flex-1 glass-card bg-green-700/80 hover:bg-green-800/90 text-white"
+                      className="flex-1 bg-green-600 hover:bg-green-700"
                     >
                       Save
                     </Button>
                     <Button
                       onClick={() => setShowSavePrompt(false)}
-                      className="flex-1 glass-card bg-slate-700/80 hover:bg-slate-800/90 text-white"
+                      className="flex-1 bg-slate-400 hover:bg-slate-500"
                     >
                       Cancel
                     </Button>
@@ -385,22 +398,32 @@ export default function SearchPage() {
 
             {/* Results */}
             {results.length > 0 && (
-              <div className="mt-8 glass-card p-8">
-                <h2 className="text-xl font-bold text-white mb-4">Results ({results.length})</h2>
+              <div className="mt-6 bg-white rounded-lg shadow-md p-6">
+                <h2 className="text-xl font-bold text-slate-900 mb-4">
+                  Results ({results.length})
+                </h2>
                 <div className="space-y-4">
                   {results.map((result) => (
                     <div
                       key={result.id}
-                      className="p-4 border border-slate-800 rounded hover:bg-slate-800/40 cursor-pointer transition glass-card bg-[#23272f]"
+                      className="p-4 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer transition"
                     >
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
-                          <h3 className="font-semibold text-white">Interview {result.position || ""}</h3>
-                          <p className="text-sm text-slate-300 mt-1">{result.role} • {result.difficulty}</p>
+                          <h3 className="font-semibold text-slate-900">
+                            Interview {result.position || ""}
+                          </h3>
+                          <p className="text-sm text-slate-600 mt-1">
+                            {result.role} • {result.difficulty}
+                          </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-blue-300">{result.score || 0}</p>
-                          <p className="text-xs text-slate-400">{new Date(result.createdAt).toLocaleDateString()}</p>
+                          <p className="text-2xl font-bold text-slate-900">
+                            {result.score || 0}
+                          </p>
+                          <p className="text-xs text-slate-600">
+                            {new Date(result.createdAt).toLocaleDateString()}
+                          </p>
                         </div>
                       </div>
                     </div>

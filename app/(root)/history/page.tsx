@@ -21,46 +21,53 @@ const HistoryPage = async () => {
   const feedbackMap = new Map(feedbacksArray.map((entry) => [entry.id, entry.feedback]));
 
   return (
-    <section className="flex flex-col gap-6">
-      <div>
-        <h2>Interview History</h2>
-        <p className="text-light-100">Review past interviews, feedback, and transcripts.</p>
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-[#181c24] to-[#23272f] p-6">
+      <div className="max-w-5xl mx-auto">
+        <div className="mb-10">
+          <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight drop-shadow-lg">Interview History</h1>
+          <p className="text-lg text-slate-300 mt-3">Review past interviews, feedback, and transcripts.</p>
+        </div>
 
-      {interviews.length === 0 ? (
-        <p className="text-light-100">No interviews yet.</p>
-      ) : (
-        <div className="flex flex-col gap-6">
-          {interviews.map((interview) => {
-            const feedback = feedbackMap.get(interview.id);
-            return (
-              <div key={interview.id} className="card-border">
-                <div className="card p-6 flex flex-col gap-4">
-                  <div className="flex items-center justify-between flex-wrap gap-3">
+        {interviews.length === 0 ? (
+          <div className="glass-card p-12 text-center">
+            <h3 className="text-xl font-semibold text-slate-200 mb-2">No interviews yet</h3>
+            <p className="text-slate-400">Complete an interview to see your history here.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-8">
+            {interviews.map((interview) => {
+              const feedback = feedbackMap.get(interview.id);
+              return (
+                <div key={interview.id} className="glass-card p-7 rounded-xl">
+                  <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
                     <div>
-                      <h3 className="capitalize">{interview.role} Interview</h3>
-                      <p className="text-light-100">
+                      <h3 className="capitalize text-2xl font-bold text-white drop-shadow">{interview.role} Interview</h3>
+                      <p className="text-slate-300">
                         {interview.type} • {interview.level} • {interview.difficulty || "Medium"}
                       </p>
                     </div>
-                    <p className="text-primary-200 font-semibold">
-                      Score: {feedback?.totalScore ?? "---"}
-                    </p>
+                    <p className="text-blue-300 font-semibold text-xl">Score: {feedback?.totalScore ?? "---"}</p>
                   </div>
 
-                  {feedback?.finalAssessment && <p>{feedback.finalAssessment}</p>}
+                  {feedback?.finalAssessment && (
+                    <div className="mb-3">
+                      <p className="text-green-300 font-semibold">{feedback.finalAssessment}</p>
+                    </div>
+                  )}
 
                   <div className="flex flex-col gap-3">
-                    <h3>Transcript</h3>
-                    <TranscriptViewer transcript={feedback?.transcript} />
+                    <h3 className="text-lg font-bold text-white">Transcript</h3>
+                    <div className="bg-[#23272f] rounded p-4">
+                      <TranscriptViewer transcript={feedback?.transcript} />
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 
