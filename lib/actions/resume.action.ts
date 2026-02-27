@@ -52,6 +52,42 @@ Return ONLY valid JSON with this exact structure:
   return JSON.parse(content);
 };
 
+/**
+ * Save resume metadata to the resumes collection
+ */
+export async function saveResume(params: {
+  fileName: string;
+  fileUrl: string;
+  fileSize: number;
+  fileType: string;
+  description?: string;
+}) {
+  try {
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const resume = {
+      userId,
+      fileName: params.fileName,
+      fileUrl: params.fileUrl,
+      fileSize: params.fileSize,
+      fileType: params.fileType,
+      description: params.description || "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const docRef = await db.collection("resumes").add(resume);
+
+    return { success: true, resumeId: docRef.id };
+  } catch (error) {
+    console.error("Error saving resume:", error);
+    return { success: false, error: "Failed to save resume" };
+  }
+}
+
 // Analyze resume strengths, weaknesses, and recommendations
 const analyzeResume = async (parsedData: Record<string, any>) => {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
