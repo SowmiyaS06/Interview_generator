@@ -119,6 +119,20 @@
       ]
     },
     {
+      "collection": "interview_goals",
+      "queryScope": "Collection",
+      "fields": [
+        {
+          "fieldPath": "userId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "deadline",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collection": "goal_milestones",
       "queryScope": "Collection",
       "fields": [

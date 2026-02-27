@@ -222,6 +222,7 @@ export async function getInterviewsByUserId(
     }) as Interview[];
 }
 
+
 export async function deleteInterview(interviewId: string) {
   try {
     const userId = await getCurrentUserId();

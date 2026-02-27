@@ -1,6 +1,7 @@
 import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 // Initialize Firebase Admin SDK
 function initFirebaseAdmin() {
@@ -17,6 +18,7 @@ function initFirebaseAdmin() {
     const projectId = readEnv("FIREBASE_PROJECT_ID");
     const clientEmail = readEnv("FIREBASE_CLIENT_EMAIL");
     const privateKeyRaw = readEnv("FIREBASE_PRIVATE_KEY");
+    const storageBucket = readEnv("FIREBASE_STORAGE_BUCKET") || `${projectId}.appspot.com`;
     const privateKey = privateKeyRaw?.replace(/\\n/g, "\n");
 
     const requiredEnv = {
@@ -43,13 +45,15 @@ function initFirebaseAdmin() {
         clientEmail,
         privateKey,
       }),
+      storageBucket,
     });
   }
 
   return {
     auth: getAuth(),
     db: getFirestore(),
+    storage: getStorage(),
   };
 }
 
-export const { auth, db } = initFirebaseAdmin();
+export const { auth, db, storage } = initFirebaseAdmin();

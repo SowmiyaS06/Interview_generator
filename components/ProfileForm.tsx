@@ -3,11 +3,10 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { sendPasswordResetEmail } from "firebase/auth";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { auth, storage } from "@/firebase/client";
+import { auth } from "@/firebase/client";
 
 const ProfileForm = ({ user }: { user: User }) => {
   const [name, setName] = useState(user.name);
@@ -52,23 +51,33 @@ const ProfileForm = ({ user }: { user: User }) => {
   };
 
   const handleResumeUpload = async (file: File) => {
-    if (!storage) {
-      toast.error("Storage is not configured");
-      return;
-    }
-
     setIsUploading(true);
     try {
-      const safeName = file.name.replace(/\s+/g, "-");
-      const path = `resumes/${user.id}/${Date.now()}-${safeName}`;
-      const fileRef = ref(storage, path);
-      await uploadBytes(fileRef, file);
-      const resumeUrl = await getDownloadURL(fileRef);
+      // First, upload the file to the server
+      const formData = new FormData();
+      formData.append("file", file);
 
+      const uploadResponse = await fetch("/api/profile/upload-resume", {
+        method: "POST",
+        body: formData,
+      });
+
+      const uploadResult = (await uploadResponse.json()) as {
+        success: boolean;
+        resumeUrl?: string;
+        error?: string;
+      };
+
+      if (!uploadResult.success) {
+        toast.error(uploadResult.error || "Failed to upload resume");
+        return;
+      }
+
+      // Then, save the URL to the user profile
       const response = await fetch("/api/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resumeUrl }),
+        body: JSON.stringify({ resumeUrl: uploadResult.resumeUrl }),
       });
 
       const result = (await response.json()) as { success: boolean; message?: string };

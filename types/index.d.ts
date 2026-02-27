@@ -46,6 +46,17 @@ interface User {
   profileUrl?: string;
 }
 
+interface Resume {
+  id: string;
+  userId: string;
+  fileName: string;
+  fileUrl: string;
+  fileSize: number;
+  fileType: string;
+  uploadedAt: string;
+  description?: string;
+}
+
 interface InterviewCardProps {
   interviewId?: string;
   userId?: string;
